@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.openatx.xtest.popup" android:versionCode="30718" android:versionName="3.7.18-minimized-edge-handle">
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN"/>
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+    </queries>
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <application android:allowBackup="false" android:label="XTest Nova" android:usesCleartextTraffic="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <provider
+            android:name=".PackageMetadataProvider"
+            android:authorities="com.openatx.xtest.popup.metadata"
+            android:exported="true"
+            android:grantUriPermissions="false"
+            android:readPermission="android.permission.DUMP"
+            android:writePermission="android.permission.DUMP" />
+        <activity android:name="com.openatx.xtest.popup.PopupLauncherActivity" android:exported="true" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.NoDisplay"/>
+        <service android:name="com.openatx.xtest.popup.OverlayService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Persistent user-visible test automation overlay controls"/>
+        </service>
+    </application>
+</manifest>

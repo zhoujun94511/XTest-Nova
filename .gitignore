@@ -1,0 +1,32 @@
+# Build outputs
+dist/
+tests/reports/
+**/build/
+**/out/
+.gradle/
+.gradle-user/
+.gocache/
+.cache/
+.tmp/
+*.apk
+*.dex
+*.jar
+!agent/internal/scrcpy/scrcpy-server-v4.1.jar
+!agent/internal/runtimebundle/assets/*.jar
+!agent/internal/runtimebundle/assets/*.apk
+!uiautomator/gradle/wrapper/gradle-wrapper.jar
+
+# Local SDK and signing configuration
+local.properties
+.private/
+*.jks
+*.keystore
+*.credentials.psd1
+.xtest-nova-api-token*
+
+# Editors and OS files
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

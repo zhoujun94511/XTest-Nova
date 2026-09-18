@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "xtest-evaluation/v1",
+  "engine": "nexus",
+  "engineVersion": "10235",
+  "scenario": "android16-foloy-smoke",
+  "package": "tcg.scanner.value.app",
+  "durationMillis": 60000,
+  "completed": true,
+  "crashed": false,
+  "stopReason": "finished",
+  "metrics": {
+    "activityCovered": 5,
+    "activityTotal": 17,
+    "activityCoveragePercent": 29.411764,
+    "statesDiscovered": 59,
+    "scrolls": 5,
+    "motionEvents": 7
+  },
+  "evidence": [
+    "D:/projectx/XTest-Nexus/docs/history/README_BEFORE_REORGANIZATION.md:102"
+  ]
+}

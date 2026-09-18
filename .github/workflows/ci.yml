@@ -1,0 +1,167 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: 'Additional label selecting a Windows self-hosted runner with adb and a connected device'
+        required: true
+        default: 'XTest-device'
+      device_serial:
+        description: 'adb serial of the device to audit'
+        required: true
+      package_name:
+        description: 'Optional Gallery package override'
+        required: false
+        default: ''
+      total_minutes:
+        description: 'Total device audit duration'
+        required: true
+        default: '20'
+      go_minutes:
+        description: 'Go exploration phase duration'
+        required: true
+        default: '10'
+      minimum_go_steps:
+        description: 'Minimum persisted Go exploration steps per run'
+        required: true
+        default: '1'
+      minimum_java_events:
+        description: 'Minimum Java Monkey events per run'
+        required: true
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  go-quality:
+    runs-on: ubuntu-latest
+    env:
+      GOPROXY: 'off'
+      GOFLAGS: '-mod=vendor'
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: agent/go.sum
+      - run: go vet -mod=vendor ./...
+      - run: go test -mod=vendor ./...
+      - run: go test -mod=vendor -race ./...
+
+  repository-gates:
+    runs-on: windows-latest
+    env:
+      GOPROXY: 'off'
+      GOFLAGS: '-mod=vendor'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache: false
+      - name: Parse every PowerShell script
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem -LiteralPath . -Filter '*.ps1' -File -Recurse | ForEach-Object {
+            $tokens = $null
+            $diagnostics = $null
+            [System.Management.Automation.Language.Parser]::ParseInput(
+              [IO.File]::ReadAllText($_.FullName),
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$diagnostics
+            ) | Out-Null
+            if ($diagnostics.Count) {
+              $failed = $true
+              $diagnostics | ForEach-Object { Write-Error "$($_.Extent.File): $($_.Message)" }
+            }
+          }
+          if ($failed) { throw 'PowerShell parser gate failed' }
+      - name: Verify repository HTTP contract
+        shell: pwsh
+        run: |
+          go run -mod=vendor ./agent/cmd/contract-check `
+            -reference .\docs\compliance\reference-http-contract.md `
+            -document .\docs\compliance\http-contract.md
+      - name: Run offline Go checks
+        shell: pwsh
+        run: |
+          go vet -mod=vendor ./agent/...
+          if ($LASTEXITCODE -ne 0) { throw 'offline go vet failed' }
+          go test -mod=vendor ./agent/...
+          if ($LASTEXITCODE -ne 0) { throw 'offline go test failed' }
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.0'
+          cache-dependency-path: agent/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install pinned Android SDK components
+        shell: pwsh
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Source and attribution gate
+        shell: pwsh
+        run: .\scripts\test-first-commit.ps1
+      - name: Build and validate signed release chain
+        shell: pwsh
+        run: |
+          $keyStore = Join-Path $env:RUNNER_TEMP 'xtest-nova-ci-release.jks'
+          $passwordVariable = 'XTEST_CI_KEYSTORE_' + [Guid]::NewGuid().ToString('N')
+          $passwordBytes = New-Object byte[] 32
+          $random = [Security.Cryptography.RandomNumberGenerator]::Create()
+          $random.GetBytes($passwordBytes)
+          $random.Dispose()
+          $passwordText = [Convert]::ToBase64String($passwordBytes)
+          try {
+            Set-Item -LiteralPath "Env:$passwordVariable" -Value $passwordText
+            keytool -genkeypair -keystore $keyStore -storepass:env $passwordVariable -keypass:env $passwordVariable -alias ci-release -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=XTest Nova CI,OU=CI,O=XTest,L=CI,ST=CI,C=US'
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to create temporary CI signing key' }
+            $password = ConvertTo-SecureString $passwordText -AsPlainText -Force
+            .\build.ps1 -KeyStore $keyStore -KeyAlias ci-release -StorePassword $password -KeyPassword $password
+            .\scripts\validate-artifact-size.ps1
+            .\new-release-manifest.ps1 | Out-Null
+            .\scripts\test-release.ps1
+          } finally {
+            Remove-Item -LiteralPath "Env:$passwordVariable" -Force -ErrorAction SilentlyContinue
+            $passwordText = $null
+            $passwordBytes = $null
+            $password = $null
+          }
+
+  device-e2e:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, Windows, "${{ inputs.runner_label }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the explicitly selected device
+        shell: pwsh
+        run: |
+          $state = (& adb -s '${{ inputs.device_serial }}' get-state 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $state -ne 'device') {
+            throw "Device '${{ inputs.device_serial }}' is unavailable or unauthorized: $state"
+          }
+      - name: Run Gallery device E2E audit
+        shell: pwsh
+        run: |
+          .\tests\e2e\run-gallery-long-audit.ps1 `
+            -Serial '${{ inputs.device_serial }}' `
+            -PackageName '${{ inputs.package_name }}' `
+            -TotalMinutes ([int]'${{ inputs.total_minutes }}') `
+            -GoMinutes ([int]'${{ inputs.go_minutes }}') `
+            -MinimumGoStepsPerRun ([int]'${{ inputs.minimum_go_steps }}') `
+            -MinimumJavaEventsPerRun ([int]'${{ inputs.minimum_java_events }}')

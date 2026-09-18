@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.xtest.nova.fixture" android:versionCode="3" android:versionName="3.0-unified">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="35"/>
+    <uses-feature android:glEsVersion="0x00020000" android:required="true"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <application android:allowBackup="false" android:label="目标应用样例" android:hardwareAccelerated="true">
+        <activity android:name=".LeaderboardActivity" android:exported="false"/>
+        <activity android:name=".GameActivity" android:exported="true"/>
+        <activity android:name=".FaultScenarioActivity" android:exported="true" android:excludeFromRecents="true"/>
+        <activity android:name=".LifecycleScenarioActivity" android:exported="true"/>
+        <activity android:name=".WebViewScenarioActivity" android:exported="true"/>
+        <activity android:name=".PermissionScenarioActivity" android:exported="true"/>
+        <activity android:name=".DialogScenarioActivity" android:exported="true"/>
+        <activity android:name=".FormScenarioActivity" android:exported="true"/>
+        <activity android:name=".GLESLoopActivity" android:exported="true"/>
+        <activity android:name=".SurfaceLoopActivity" android:exported="true"/>
+        <activity android:name=".TransientActivity" android:exported="false"/>
+        <activity android:name=".NonStackActivity" android:exported="false"/>
+        <activity android:name=".DetailActivity" android:exported="false"/>
+        <activity android:name=".ValidationActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

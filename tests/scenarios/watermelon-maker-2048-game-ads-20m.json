@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "xtest-evaluation/v1",
+  "name": "watermelon-maker-2048-game-ads-20m",
+  "description": "西瓜制作机 2048 的 Unity 游戏、横幅广告和全屏广告安全探索；禁止执行购买、订阅、安装、评价、分享及账户输入。",
+  "coverageTolerancePercent": 0,
+  "wallClockSeconds": 1200,
+  "evidence": {
+    "screenshots": ["before", "middle", "after"],
+    "trackExternalEscapes": true,
+    "trackPerformance": true
+  },
+  "safetyAudit": {
+    "requirePaymentProtection": true,
+    "maximumDangerousActions": 0
+  },
+  "config": {
+    "requestId": "watermelon-maker-2048-game-ads-20m-20260915",
+    "package": "com.mobirix.ldwm",
+    "maxSteps": 2400,
+    "intervalMillis": 500,
+    "seed": 20260915,
+    "execute": true,
+    "enableScroll": true,
+    "enableBacktrack": true,
+    "recoverPopups": true,
+    "maxBacktracks": 100,
+    "freshnessMode": "strict",
+    "specialHandling": {
+      "mode": "safe",
+      "consentPolicy": "accept",
+      "permissionPolicy": "allow",
+      "paywallPolicy": "dismiss",
+      "adPolicy": "dismiss",
+      "reviewPolicy": "dismiss",
+      "onboardingPolicy": "advance",
+      "maxAttempts": 3,
+      "adMaxWaitSeconds": 30
+    },
+    "rules": {
+      "denyText": [
+        "购买", "支付", "订阅", "试用", "充值", "安装", "评价", "分享", "登录", "注册",
+        "buy", "purchase", "pay", "subscribe", "trial", "install", "review", "share", "sign in", "sign up"
+      ],
+      "recoveryText": ["关闭", "取消", "稍后", "以后再说", "返回游戏", "close", "cancel", "later", "back to game"]
+    }
+  }
+}

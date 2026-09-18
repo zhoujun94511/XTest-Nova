@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "xtest-evaluation/v1",
+  "name": "android16-foloy-smoke",
+  "description": "Android 16 上与 Nexus 历史 60 秒菜单遍历基线对照的受限场景。expectedActivities 应在运行前从相同版本目标 APK 的 manifest 补齐。",
+  "coverageTolerancePercent": 0,
+  "config": {
+    "requestId": "android16-foloy-smoke-20260903",
+    "package": "tcg.scanner.value.app",
+    "maxSteps": 100,
+    "intervalMillis": 750,
+    "seed": 20260903,
+    "execute": true,
+    "enableScroll": true,
+    "enableBacktrack": true,
+    "recoverPopups": true,
+    "maxBacktracks": 20,
+    "specialHandling": {
+      "mode": "safe",
+      "consentPolicy": "accept",
+      "permissionPolicy": "allow",
+      "paywallPolicy": "explore",
+      "adPolicy": "dismiss",
+      "reviewPolicy": "dismiss",
+      "onboardingPolicy": "advance",
+      "maxAttempts": 3
+    },
+    "rules": {
+      "denyText": ["退出登录"]
+    }
+  }
+}

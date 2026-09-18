@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="默认应用图标">
+  <rect width="192" height="192" rx="42" fill="#14243a"/>
+  <rect x="43" y="43" width="106" height="106" rx="25" fill="none" stroke="#78a9ff" stroke-width="10"/>
+  <circle cx="72" cy="72" r="8" fill="#69e1bc"/>
+  <circle cx="120" cy="72" r="8" fill="#69e1bc"/>
+  <path d="M68 116h56" stroke="#78a9ff" stroke-width="10" stroke-linecap="round"/>
+</svg>

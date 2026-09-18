@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "xtest-nova-artifact-size-budget/v1",
+  "artifacts": [
+    {
+      "name": "runner",
+      "path": "dist/xtest-nova-runner.jar",
+      "baselineBytes": 46450,
+      "maximumBytes": 65536
+    },
+    {
+      "name": "agent-arm64",
+      "path": "dist/xtest-nova-agent-arm64",
+      "baselineBytes": 13152456,
+      "maximumDeltaBytes": 262144
+    },
+    {
+      "name": "agent-armv7",
+      "path": "dist/xtest-nova-agent-armv7",
+      "baselineBytes": 13409375,
+      "maximumDeltaBytes": 262144
+    },
+    {
+      "name": "companion",
+      "path": "agent/internal/runtimebundle/assets/xtest-nova-companion.apk",
+      "baselineBytes": 53657,
+      "maximumDeltaBytes": 4096
+    }
+  ],
+  "runtimeBundle": {
+    "path": "agent/internal/runtimebundle/assets",
+    "allowedFiles": [
+      "manifest.json",
+      "xtest-nova-runner.jar",
+      "xtest-nova-companion.apk",
+      "xtest-nova-uiautomator-host.apk",
+      "xtest-nova-uiautomator-test.apk"
+    ]
+  }
+}

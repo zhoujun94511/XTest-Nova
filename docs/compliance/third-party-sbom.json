@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "xtest-nova-third-party-sbom/v1",
+  "generatedAt": "2026-09-12T00:00:00Z",
+  "components": [
+    {
+      "name": "github.com/coder/websocket",
+      "version": "1.8.15",
+      "scope": "runtime",
+      "license": "ISC",
+      "purl": "pkg:golang/github.com/coder/websocket@v1.8.15",
+      "source": "https://github.com/coder/websocket",
+      "licenseFile": "vendor/github.com/coder/websocket/LICENSE.txt",
+      "licenseSha256": "cc0975a5f6305145bdd7b41ce9479632fdac3870e6ac4281f28017f18c767c4e"
+    },
+    {
+      "name": "github.com/creack/pty",
+      "version": "1.1.24",
+      "scope": "runtime",
+      "license": "MIT",
+      "purl": "pkg:golang/github.com/creack/pty@v1.1.24",
+      "source": "https://github.com/creack/pty",
+      "licenseFile": "vendor/github.com/creack/pty/LICENSE",
+      "licenseSha256": "a2a1cea59d9c2d71908082f516f86bb560abf857646ecf69d70c121ead14aef4"
+    },
+    {
+      "name": "scrcpy-server",
+      "version": "4.1",
+      "scope": "runtime",
+      "license": "Apache-2.0",
+      "purl": "pkg:github/Genymobile/scrcpy@v4.1",
+      "source": "https://github.com/Genymobile/scrcpy/releases/tag/v4.1",
+      "artifact": "agent/internal/scrcpy/scrcpy-server-v4.1.jar",
+      "artifactSha256": "deacb991ed2509715160ffdc7907e47b4160eb30d1566217e9047fd5b8850cae",
+      "licenseFile": "agent/internal/scrcpy/LICENSE.scrcpy",
+      "licenseSha256": "01c12035bf35af37241298dc7ad538eb2a07e5c940437bc6876feeaa9d1951d0"
+    },
+    {
+      "name": "Gradle",
+      "version": "8.14.5",
+      "scope": "build",
+      "license": "Apache-2.0",
+      "purl": "pkg:generic/gradle@8.14.5",
+      "source": "https://services.gradle.org/distributions/gradle-8.14.5-bin.zip",
+      "distributionSha256": "6f74b601422d6d6fc4e1f9a1ab6522f642c2fdcbc15ae33ebd30ba3d7198e854",
+      "wrapperJarSha256": "e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637"
+    },
+    {
+      "name": "Android Gradle Plugin",
+      "version": "8.11.2",
+      "scope": "build",
+      "license": "Apache-2.0",
+      "purl": "pkg:maven/com.android.tools.build/gradle@8.11.2",
+      "source": "https://dl.google.com/dl/android/maven2/",
+      "artifactSha256": "270e07996ab69ae4e09cb86c6231d216f7076d2bf4ab9e10c1634698bfefaf58"
+    }
+  ]
+}

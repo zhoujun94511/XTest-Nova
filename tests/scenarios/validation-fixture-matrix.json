@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "xtest-validation-fixture/v1",
+  "package": "com.xtest.nova.fixture",
+  "scenarios": [
+    {
+      "id": "F1-navigation",
+      "activity": ".ValidationActivity",
+      "risk": "safe",
+      "capabilities": ["session", "foreground", "hierarchy", "scroll"],
+      "expectedText": ["复杂表单", "弹窗与异步 UI", "运行时权限", "本地 WebView", "生命周期与外跳", "游戏探索场景", "异常实验室"]
+    },
+    {
+      "id": "F2-form",
+      "activity": ".FormScenarioActivity",
+      "risk": "safe",
+      "capabilities": ["hierarchy", "focused-text", "password-filter", "duplicate-label", "disabled-control", "dynamic-node", "scroll"],
+      "expectedText": ["普通文本", "密码字段不得录制", "重复操作", "禁用操作", "添加动态节点"]
+    },
+    {
+      "id": "F3-dialog",
+      "activity": ".DialogScenarioActivity",
+      "extras": {"auto": true},
+      "risk": "safe",
+      "capabilities": ["hierarchy", "autopopup", "delayed-ui"],
+      "expectedText": ["确认弹窗场景", "确认执行", "取消执行"]
+    },
+    {
+      "id": "F4-permission",
+      "activity": ".PermissionScenarioActivity",
+      "extras": {"auto": true},
+      "risk": "permission",
+      "capabilities": ["permission-controller", "special-handling", "foreground-recovery"],
+      "cleanup": ["press-back", "restore-camera-permission"]
+    },
+    {
+      "id": "F5-webview",
+      "activity": ".WebViewScenarioActivity",
+      "risk": "safe",
+      "capabilities": ["webview-socket", "local-html", "javascript"],
+      "expectedText": ["本地 WebView 场景", "Web 输入", "执行脚本"]
+    },
+    {
+      "id": "F6-lifecycle",
+      "activity": ".LifecycleScenarioActivity",
+      "risk": "external-navigation",
+      "capabilities": ["activity-recreate", "saved-state", "shared-preferences", "settings-external", "foreground-recovery"],
+      "expectedText": ["生命周期", "重建 Activity", "打开应用设置", "结束当前页"]
+    },
+    {
+      "id": "F7-java-crash",
+      "activity": ".FaultScenarioActivity",
+      "extras": {"mode": "crash"},
+      "risk": "process-crash",
+      "capabilities": ["java-crash", "failure-screenshot", "logcat", "crash-report"],
+      "explorableControl": "fault-java-crash",
+      "expectedFailureType": "app_crash",
+      "expectedArtifact": "crash.json",
+      "cleanup": ["force-stop-package"]
+    },
+    {
+      "id": "F8-anr",
+      "activity": ".FaultScenarioActivity",
+      "extras": {"mode": "anr"},
+      "risk": "app-main-thread-block",
+      "capabilities": ["anr", "activity-manager", "failure-screenshot", "anr-report"],
+      "explorableControl": "fault-main-thread-anr",
+      "expectedFailureType": "app_anr",
+      "expectedArtifact": "anr.json",
+      "timeoutSeconds": 20,
+      "cleanup": ["force-stop-package"]
+    },
+    {
+      "id": "F9-rendering-graph",
+      "activity": ".NonStackActivity",
+      "risk": "bounded-load",
+      "capabilities": ["graph-path", "surface", "gles", "fps", "gpu", "screenrecord"],
+      "relatedActivities": [".TransientActivity", ".SurfaceLoopActivity", ".GLESLoopActivity"]
+    },
+    {
+      "id": "F10-game-exploration",
+      "activity": ".GameActivity",
+      "risk": "safe-with-blocklisted-control",
+      "capabilities": ["dynamic-state", "grid", "dialog", "scroll", "cross-activity", "persistent-counter", "unsafe-control-filter"],
+      "expectedText": ["Nova 追星小游戏", "开始游戏", "查看排行榜", "异常实验室（测试专用）"],
+      "relatedActivities": [".LeaderboardActivity", ".FaultScenarioActivity"],
+      "blockedControls": ["purchase-coins", "fault-java-crash", "fault-main-thread-anr", "fault-native-crash", "fault-process-signal"]
+    },
+    {
+      "id": "F11-native-sigsegv",
+      "activity": ".FaultScenarioActivity",
+      "extras": {"mode": "native", "auto": true},
+      "risk": "process-native-crash",
+      "capabilities": ["native-crash", "tombstone", "failure-screenshot", "logcat", "crash-report"],
+      "explorableControl": "fault-native-crash",
+      "expectedFailureType": "app_crash",
+      "expectedCounter": "nativeCrashCount",
+      "expectedArtifact": "native_crash.txt",
+      "cleanup": ["force-stop-package"]
+    },
+    {
+      "id": "F12-process-signal",
+      "activity": ".FaultScenarioActivity",
+      "extras": {"mode": "signal", "auto": true},
+      "risk": "process-exit",
+      "capabilities": ["abnormal-exit", "exit-reason", "failure-screenshot", "logcat"],
+      "explorableControl": "fault-process-signal",
+      "expectedFailureType": "abnormal_exit",
+      "expectedArtifact": "exit_info.json",
+      "cleanup": ["force-stop-package"]
+    }
+  ]
+}

@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#08111f">
+  <base href="/">
+  <title>XTest Nova · Android 测试控制台</title>
+  <link rel="icon" href="assets/media/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/foundation.css?v=2">
+  <link rel="stylesheet" href="assets/css/shell.css?v=4">
+  <link rel="stylesheet" href="assets/css/components.css?v=3">
+</head>
+<body class="auth-pending">
+  <a class="skip-link" href="#workspace">跳到主要内容</a>
+  <main id="lan-login" class="login-screen" hidden>
+    <form id="lan-login-form" class="login-card" aria-labelledby="lan-login-title" aria-describedby="lan-login-description lan-login-message">
+      <span class="brand-mark login-mark" aria-hidden="true">N</span>
+      <span class="overline">局域网访问验证</span>
+      <h1 id="lan-login-title">登录 XTest Nova</h1>
+      <p id="lan-login-description">请输入由管理员提供的令牌。令牌仅用于本次登录请求，不会保存在浏览器中。</p>
+      <label class="field" for="lan-token"><span>访问令牌</span><input id="lan-token" name="token" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required aria-required="true"></label>
+      <p id="lan-login-message" class="login-message" role="alert" aria-live="assertive"></p>
+      <button id="lan-login-submit" type="submit">登录控制台</button>
+    </form>
+  </main>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <div><strong>XTest Nova</strong><span>安卓测试运行环境</span></div>
+      </div>
+
+      <nav class="primary-nav" aria-label="功能导航">
+        <button class="nav-item active" data-view="overview" aria-label="概览" aria-current="page"><span aria-hidden="true">⌂</span><span>概览</span></button>
+        <button class="nav-item" data-view="apps" aria-label="应用"><span aria-hidden="true">▦</span><span>应用</span></button>
+        <button class="nav-item" data-view="automation" aria-label="自动化"><span aria-hidden="true">◇</span><span>自动化</span></button>
+        <button class="nav-item" data-view="performance" aria-label="性能"><span aria-hidden="true">⌁</span><span>性能</span></button>
+        <button class="nav-item" data-view="remote" aria-label="远控"><span aria-hidden="true">▣</span><span>远控</span></button>
+        <button class="nav-item" data-view="artifacts" aria-label="产物"><span aria-hidden="true">▤</span><span>产物</span></button>
+        <button class="nav-item" data-view="diagnostics" aria-label="诊断"><span aria-hidden="true">◎</span><span>诊断</span></button>
+      </nav>
+
+      <div class="sidebar-status">
+        <span class="status-dot pending" id="health-dot" aria-hidden="true"></span>
+        <div><strong id="health-label">正在连接</strong><span id="version">读取 Agent 状态…</span></div>
+      </div>
+    </aside>
+
+    <main id="workspace" class="workspace" tabindex="-1">
+      <header class="topbar">
+        <div>
+          <p class="overline" id="view-kicker">工作台</p>
+          <h1 id="view-title">运行概览</h1>
+          <p id="view-description">掌握设备、运行组件和测试任务的实时状态。</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="device-badge" id="device-context" title="当前连接设备">设备识别中</span>
+          <span class="connection-badge" id="health"><span class="status-dot pending" aria-hidden="true"></span><span>连接中</span></span>
+          <button id="lan-logout" class="secondary" type="button" hidden>退出登录</button>
+          <button class="icon-button" data-action="refresh-dashboard" aria-label="刷新控制台" title="刷新控制台">↻</button>
+        </div>
+      </header>
+
+      <div id="active-session" class="session-banner" hidden aria-live="polite"></div>
+
+      <section id="overview" class="view active" aria-labelledby="overview-title">
+        <h2 class="sr-only" id="overview-title">运行概览</h2>
+        <div class="metric-grid" id="device-metrics">
+          <article class="metric-card skeleton"></article><article class="metric-card skeleton"></article>
+          <article class="metric-card skeleton"></article><article class="metric-card skeleton"></article>
+        </div>
+
+        <div class="content-grid overview-grid">
+          <article class="panel quick-panel">
+            <div class="panel-heading"><div><span class="overline">常用操作</span><h2>设备控制</h2></div></div>
+            <div class="quick-actions">
+              <button class="quick-action" data-action="wake"><span class="quick-icon">☼</span><span><strong>唤醒屏幕</strong><small>点亮并保持设备可操作</small></span></button>
+              <button class="quick-action" data-action="screenshot"><span class="quick-icon">▣</span><span><strong>实时截图</strong><small>获取当前设备画面</small></span></button>
+              <button class="quick-action" data-action="popup-start"><span class="quick-icon">◉</span><span><strong>启动悬浮窗</strong><small>开启手机端快捷入口</small></span></button>
+              <button class="quick-action" data-action="popup-stop"><span class="quick-icon">○</span><span><strong>停止悬浮窗</strong><small>暂时关闭前台服务</small></span></button>
+            </div>
+          </article>
+
+          <article class="panel readiness-panel">
+            <div class="panel-heading"><div><span class="overline">运行环境</span><h2>运行就绪度</h2></div><button class="text-button" data-action="components-refresh">刷新</button></div>
+            <div class="readiness-score"><strong id="readiness-score">—</strong><span>核心组件就绪</span></div>
+            <div id="readiness-list" class="status-list"><p class="empty-state">正在读取组件状态…</p></div>
+          </article>
+
+          <article class="panel screenshot-panel" id="screenshot-panel" hidden>
+            <div class="panel-heading"><div><span class="overline">设备画面</span><h2>设备截图</h2></div><button class="icon-button subtle" data-action="close-screenshot" aria-label="关闭截图">×</button></div>
+            <div class="device-frame"><img id="shot" src="assets/media/placeholder.svg?v=2" alt="设备截图"></div>
+          </article>
+
+          <article class="panel details-panel">
+            <details>
+              <summary><span><span class="overline">设备详情</span><strong>完整设备信息</strong></span><span aria-hidden="true">⌄</span></summary>
+              <dl id="device-details" class="detail-list"><div><dt>状态</dt><dd>读取中</dd></div></dl>
+            </details>
+          </article>
+        </div>
+      </section>
+
+      <section id="apps" class="view" aria-labelledby="apps-title">
+        <div class="section-intro"><div><span class="overline">应用管理</span><h2 id="apps-title">应用管理</h2><p>查找测试目标，查看包信息并快速启动。</p></div><button data-action="apps-refresh">刷新应用</button></div>
+        <div class="content-grid split-grid">
+          <article class="panel app-browser">
+            <div class="toolbar"><label class="search-field"><span aria-hidden="true">⌕</span><input id="app-search" type="search" placeholder="按名称或包名筛选" autocomplete="off"></label><label class="field app-scope-field"><span class="sr-only">应用类型</span><select id="app-scope"><option value="third-party">第三方应用</option><option value="system">系统应用</option><option value="all">全部应用</option></select></label><span id="app-count" class="muted">尚未读取</span></div>
+            <div id="package-list" class="app-list"><p class="empty-state">点击“刷新应用”读取第三方应用。</p></div>
+          </article>
+          <article class="panel sticky-panel">
+            <span class="overline">当前目标</span><h2>目标应用</h2>
+            <div class="selected-app"><span class="selected-app-icon"><span id="selected-app-fallback">A</span><img id="selected-app-icon" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" hidden></span><div class="selected-app-copy"><strong id="selected-app-name">尚未选择</strong><small class="selected-package" id="selected-package">请选择目标应用</small></div></div>
+            <div class="action-row"><button data-action="app-launch">启动应用</button><button class="secondary" data-action="app-info">刷新详情</button><button class="danger-quiet" data-action="app-uninstall">卸载应用</button></div>
+            <div id="app-output" class="structured-output empty-state">从左侧选择一个应用。</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="automation" class="view" aria-labelledby="automation-title">
+        <div class="section-intro"><div><span class="overline">自动化测试</span><h2 id="automation-title">自动化测试</h2><p>随机遍历、智能探索和录制回放共享当前目标应用。</p></div><label class="field module-target"><span>目标应用</span><select id="automation-package" data-package-select><option value="">请选择目标应用</option></select></label></div>
+        <div class="workflow-grid">
+          <article class="panel workflow-card">
+            <div class="workflow-heading"><span class="workflow-icon">M</span><div><h3>随机遍历</h3><p>适合稳定性、异常捕获与广度覆盖。</p></div><span class="state-pill" id="monkey-state-pill">空闲</span></div>
+            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="monkey-duration" type="number" min="1" max="86400" value="60"><span>秒</span></span></label><label class="field"><span>事件间隔</span><span class="input-unit"><input id="monkey-throttle" type="number" min="0" max="60000" value="500"><span>ms</span></span></label><label class="field"><span>纯渲染页面策略</span><select id="monkey-render-fallback"><option value="bounded" selected>有界兜底（推荐）</option><option value="off">关闭坐标兜底</option><option value="continuous">持续探索（游戏，需明确授权）</option></select></label></div>
+            <div class="action-row"><button data-action="monkey-start">开始测试</button><button class="secondary" data-action="monkey-refresh">查看状态</button><button class="danger-quiet" data-action="monkey-stop">停止</button></div>
+            <div id="monkey-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
+          </article>
+
+          <article class="panel workflow-card featured">
+            <div class="workflow-heading"><span class="workflow-icon">E</span><div><h3>智能探索</h3><p>基于控件树建立状态图并安全回溯。</p></div><span class="state-pill" id="exploration-state-pill">空闲</span></div>
+            <div class="form-grid three"><label class="field"><span>最大步骤</span><input id="explore-steps" type="number" min="1" max="10000" value="100"></label><label class="field"><span>动作间隔 (ms)</span><input id="explore-interval" type="number" min="100" max="60000" value="750"></label><label class="field"><span>最大回溯</span><input id="explore-backtracks" type="number" min="1" max="1000" value="20"></label></div>
+            <div class="switch-row"><label class="switch"><input id="explore-execute" type="checkbox" checked><span>执行动作</span></label><label class="switch"><input id="explore-scroll" type="checkbox" checked><span>滚动探索</span></label><label class="switch"><input id="explore-backtrack" type="checkbox" checked><span>允许回溯</span></label><label class="switch"><input id="explore-recover" type="checkbox" checked><span>弹窗恢复</span></label></div>
+            <div class="action-row"><button data-action="explore-start">开始探索</button><button class="secondary" data-action="explore-preview">预览动作</button><button class="secondary" data-action="explore-refresh">查看状态</button><button class="danger-quiet" data-action="explore-stop">停止</button></div>
+            <div id="explore-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
+          </article>
+
+          <article class="panel workflow-card full-span">
+            <div class="workflow-heading"><span class="workflow-icon">R</span><div><h3>录制与回放</h3><p>捕获真实触控操作，保存后可校验并重复执行。</p></div><span class="state-pill" id="record-state-pill">空闲</span></div>
+            <div class="record-layout">
+              <div>
+                <div class="form-grid two"><label class="field"><span>用例名称</span><input id="record-name" placeholder="login-happy-path" maxlength="80" autocomplete="off"></label><label class="field"><span>任务标签（可选）</span><input id="record-task" placeholder="smoke" maxlength="80" autocomplete="off"></label></div>
+                <div class="action-row"><button data-action="record-start">开始录制</button><button class="danger-quiet" data-action="record-stop">停止并保存</button><button class="secondary" data-action="record-state">录制状态</button></div>
+                <div id="record-state-output" class="structured-output compact-output"><p class="empty-state">尚未录制。</p></div>
+              </div>
+              <div class="case-library">
+                <div class="panel-heading"><div><span class="overline">用例库</span><h3>已保存用例</h3></div><button class="text-button" data-action="record-list">刷新</button></div>
+                <div id="record-list-output" class="case-list"><p class="empty-state">尚未读取用例。</p></div>
+                <div class="replay-bar"><label class="field compact"><span>回放速度</span><select id="replay-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><button data-action="replay-start">回放选中用例</button><button class="danger-quiet" data-action="replay-stop">停止</button><button class="secondary" data-action="replay-state">状态</button></div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="performance" class="view" aria-labelledby="performance-title">
+        <div class="section-intro"><div><span class="overline">性能采集</span><h2 id="performance-title">性能采集</h2><p>持续记录目标应用指标，并区分预热、空闲、不支持和采集失败；停止后直接展示统计摘要与数据质量。</p></div><div class="module-controls"><label class="field module-target"><span>目标应用</span><select id="performance-package" data-package-select><option value="">请选择目标应用</option></select></label><span class="state-pill" id="perf-state-pill">空闲</span></div></div>
+        <article class="panel focused-panel">
+          <div class="focus-target"><span>采集目标</span><strong id="perf-target">尚未选择应用</strong></div>
+          <div class="form-grid two performance-options"><label class="field"><span>采样间隔</span><span class="input-unit"><input id="perf-interval" type="number" min="1" max="60" value="2"><span>秒</span></span></label><label class="field"><span>自动停止</span><span class="input-unit"><input id="perf-duration" type="number" min="0" max="604800" value="0"><span>秒，0 表示手动停止</span></span></label></div>
+          <div class="action-row"><button data-action="perf-start">开始采集</button><button class="secondary" data-action="perf-refresh">查看状态</button><button class="danger-quiet" data-action="perf-stop">停止并保存</button></div>
+          <div id="perf-metrics" class="performance-metrics"><p class="empty-state">等待首个性能样本。</p></div>
+          <div id="perf-trends" class="performance-trends" aria-label="最近性能趋势"></div>
+          <div id="perf-errors" class="performance-errors" hidden></div>
+          <div id="perf-output" class="structured-output"><p class="empty-state">等待开始性能采集。</p></div>
+		  <section id="perf-summary" class="performance-summary" aria-live="polite" hidden></section>
+        </article>
+        <article class="panel">
+          <div><span class="overline">启动性能</span><h2>冷启动与暖启动基线</h2><p>通过 Android ActivityManager 多轮测量启动耗时，并使用 P95 与基线进行确定性判定；基线判定至少需要 5 轮。</p></div>
+          <div class="form-grid three">
+            <label class="field"><span>启动类型</span><select id="startup-mode"><option value="cold">冷启动</option><option value="warm">暖启动</option></select></label>
+            <label class="field"><span>测量轮数</span><input id="startup-runs" type="number" min="1" max="20" value="5"></label>
+            <label class="field"><span>轮次间隔</span><span class="input-unit"><input id="startup-cooldown" type="number" min="0" max="30000" value="1000"><span>毫秒</span></span></label>
+            <label class="field"><span>基线 P95</span><span class="input-unit"><input id="startup-baseline" type="number" min="0" value="0"><span>毫秒，0 表示仅测量</span></span></label>
+            <label class="field"><span>允许退化幅度</span><span class="input-unit"><input id="startup-regression" type="number" min="0" max="1000" value="10"><span>%</span></span></label>
+          </div>
+          <div class="action-row"><button data-action="startup-measure">开始测量</button></div>
+          <div id="startup-output" class="structured-output compact-output"><p class="empty-state">尚未测量启动性能。</p></div>
+        </article>
+      </section>
+
+      <section id="remote" class="view" aria-labelledby="remote-title">
+        <div class="section-intro"><div><span class="overline">设备交互</span><h2 id="remote-title">屏幕查看与远程控制</h2><p>通过内置 scrcpy 4.1 实时查看设备画面，并使用鼠标、触屏和键盘直接操作。</p></div><div class="module-controls"><label class="field compact module-target"><span>画面质量</span><select id="remote-quality"><option value="low">流畅</option><option value="normal" selected>均衡</option><option value="high">高清</option><option value="original">原始</option></select></label><button data-remote-command="reconnect">重新连接</button></div></div>
+        <div class="remote-toolbar" role="toolbar" aria-label="设备快捷按键">
+          <button class="secondary" data-remote-key="4">返回</button><button class="secondary" data-remote-key="3">主页</button><button class="secondary" data-remote-key="187">最近任务</button><button class="secondary" data-remote-key="224">唤醒</button><button class="secondary" data-remote-key="26">电源</button><button class="secondary" data-remote-key="25">音量－</button><button class="secondary" data-remote-key="24">音量＋</button><button class="secondary" data-remote-command="rotate">旋转画面</button><button class="secondary" data-remote-command="fullscreen">全屏</button>
+          <span class="state-pill" id="remote-video-state">画面未连接</span><span class="state-pill" id="remote-control-state">控制未连接</span>
+        </div>
+        <div class="remote-grid">
+          <article class="panel remote-screen-panel">
+            <div id="remote-stage" class="remote-stage" tabindex="0" aria-label="设备实时画面，可点击、拖动、滚动并使用键盘控制">
+              <canvas id="remote-canvas" width="720" height="1280"></canvas>
+              <div id="remote-placeholder" class="remote-placeholder"><strong>正在准备设备画面</strong><span>仅在打开此页面时占用视频与控制通道</span></div>
+            </div>
+            <div class="remote-meta"><span id="remote-resolution">等待首帧</span><span id="remote-traffic">已接收 0 B</span><span>离开页面自动断开并回收设备进程</span></div>
+          </article>
+          <aside class="panel remote-side">
+            <div class="panel-heading"><div><span class="overline">文字输入</span><h2>文字与剪贴板</h2></div><button class="text-button" data-remote-command="capture">保存画面</button></div>
+            <label class="field"><span>发送内容</span><textarea id="remote-text" maxlength="262000" placeholder="输入要发送到设备的文字；请勿填写密码、令牌等敏感内容"></textarea></label>
+            <div class="action-row"><button data-remote-command="type">输入文字</button><button class="secondary" data-remote-command="clipboard">复制到设备</button><button class="secondary" data-remote-command="paste">复制并粘贴</button><button class="secondary" data-remote-command="read-clipboard">读取设备剪贴板</button></div>
+            <p class="remote-help">点击画面后，可使用 Enter、退格、方向键、Esc 和 Tab。鼠标拖动对应触摸滑动，滚轮对应设备滚动；离开本页面后连接会自动关闭。</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="artifacts" class="view" aria-labelledby="artifacts-title">
+        <div class="section-intro"><div><span class="overline">测试产物</span><h2 id="artifacts-title">测试产物</h2><p>按应用和任务类型检索结果，直接下载单个文件。</p></div><button data-action="artifacts-refresh">查询产物</button></div>
+        <article class="panel">
+          <div class="filter-row"><label class="field"><span>目标应用（可选）</span><select id="artifact-package" data-package-filter><option value="">全部应用</option></select></label><label class="field"><span>任务类型（可选）</span><select id="artifact-kind"><option value="">全部类型</option><option value="Monkey">随机遍历</option><option value="Exploration">智能探索</option><option value="Performance">性能采集</option><option value="Startup">启动性能</option><option value="ReplayRuns">用例回放</option></select></label><label class="field"><span>结果数量</span><select id="artifact-limit"><option>20</option><option selected>50</option><option>100</option></select></label></div>
+          <div id="artifacts-output" class="artifact-list"><p class="empty-state">点击“查询产物”查看最近结果。</p></div>
+        </article>
+        <article class="panel file-browser-panel">
+          <div class="panel-heading"><div><span class="overline">设备文件</span><h2>设备文件浏览器</h2><p>支持常见媒体与文本预览；当前目录可导出为 ZIP。</p></div><button class="text-button" data-action="file-refresh">刷新</button></div>
+          <div class="file-toolbar"><label class="field"><span>浏览位置</span><select id="file-root"><option value="/sdcard/xtest-nova">测试产物目录</option><option value="/sdcard">共享存储</option><option value="/data/local/tmp">Agent 临时目录</option></select></label><button class="secondary" data-action="file-up">返回上级</button></div>
+          <div class="file-pathbar"><div id="file-breadcrumb" class="file-breadcrumb">/sdcard/xtest-nova</div><button class="secondary" data-action="file-export-directory">导出当前目录 ZIP</button></div>
+          <div id="file-tree" class="file-tree"><p class="empty-state">正在读取设备文件…</p></div>
+          <div id="file-selection" class="file-selection" hidden><div><span>已选择文件</span><strong id="file-selected-name">—</strong><small id="file-selected-path">—</small></div><div class="action-row"><button data-action="file-preview">预览</button><button class="secondary" data-action="file-info">查看信息</button><button class="secondary" data-action="file-download">下载</button></div></div>
+          <div id="file-preview" class="file-preview" hidden></div>
+          <div id="file-output" class="structured-output compact-output" hidden></div>
+        </article>
+      </section>
+
+      <section id="diagnostics" class="view" aria-labelledby="diagnostics-title">
+        <h2 id="diagnostics-title" class="sr-only">运行诊断工作区</h2>
+        <div class="diagnostics-commandbar"><p>集中检查 Agent 资源、运行组件、守护日志和长稳采样。</p><div class="diagnostics-refresh"><span id="diagnostics-updated" class="diagnostics-updated" aria-live="polite">等待首次刷新</span><button data-action="diagnostics-refresh">刷新全部</button></div></div>
+        <div class="diagnostics-stack">
+          <article class="panel diagnostics-runtime-panel">
+            <div class="panel-heading"><div><span class="overline">资源快照</span><h2>Agent 运行状态</h2></div><span class="state-pill running">前台自动更新</span></div>
+            <div id="diagnostics-output" class="structured-output"><p class="empty-state">尚未读取。</p></div>
+          </article>
+          <article class="panel diagnostics-components-panel">
+            <div class="panel-heading"><div><span class="overline">运行组件</span><h2>组件健康</h2><p>“按需启动”表示组件已可用但当前空闲，并非异常。</p></div><button class="text-button" data-action="components-refresh">刷新组件</button></div>
+            <div id="component-summary" class="component-summary" aria-live="polite"><span class="component-summary-chip">正在汇总组件状态…</span></div>
+            <div id="components-output" class="component-list diagnostics-component-list"><p class="empty-state">尚未读取。</p></div>
+          </article>
+          <div class="diagnostics-tools-grid">
+            <article class="panel log-panel">
+              <div class="panel-heading"><div><span class="overline">问题排查</span><h2>守护日志</h2></div><div class="panel-heading-actions"><button class="text-button" data-action="logs-clear">清空视图</button><button class="text-button" data-action="logs-refresh">读取末尾</button></div></div>
+              <div class="filter-row"><label class="field"><span>日志源</span><select id="log-name"><option value="agent">Agent</option><option value="minitouch">触控服务</option></select></label><label class="field grow"><span>包含文本（可选）</span><input id="log-contains" placeholder="例如：error、panic 或包名" autocomplete="off"></label><label class="field"><span>读取行数</span><select id="log-lines"><option>100</option><option selected>300</option><option>1000</option></select></label></div>
+              <pre id="logs-output" class="log-output">等待读取日志…</pre>
+            </article>
+            <article class="panel soak-panel">
+              <div><span class="overline">趋势观测</span><h2>稳定性采样</h2><p>按固定间隔记录资源趋势，样本写入产物目录，内存仅保留最近 120 条。</p></div>
+              <div class="form-grid two"><label class="field"><span>采样时长</span><span class="input-unit"><input id="soak-duration" type="number" min="60" max="604800" value="3600"><span>秒</span></span></label><label class="field"><span>采样间隔</span><span class="input-unit"><input id="soak-interval" type="number" min="5" max="300" value="30"><span>秒</span></span></label></div>
+              <div class="action-row"><button data-action="soak-start">开始采样</button><button class="secondary" data-action="soak-state">查看状态</button><button class="danger-quiet" data-action="soak-stop">停止采样</button><span class="state-pill" id="soak-state-pill">空闲</span></div>
+              <div id="soak-output" class="structured-output compact-output"><p class="empty-state">尚未开始。</p></div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="global-progress" class="global-progress" hidden><span></span></div>
+
+  <script defer src="assets/js/core.js?v=2"></script>
+  <script defer src="assets/js/renderers.js?v=4"></script>
+  <script defer src="assets/js/package-selector.js?v=3"></script>
+  <script defer src="assets/js/remote-control.js?v=2"></script>
+  <script defer src="assets/js/performance.js?v=2"></script>
+  <script defer src="assets/js/app.js?v=6"></script>
+</body>
+</html>

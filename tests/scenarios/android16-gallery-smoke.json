@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "xtest-evaluation/v1",
+  "name": "android16-gallery-smoke",
+  "description": "Android 16 系统图库的安全浏览、滚动和返回场景。该场景不删除、编辑或分享设备媒体。",
+  "coverageTolerancePercent": 0,
+  "config": {
+    "requestId": "android16-gallery-smoke-20260912",
+    "package": "com.miui.gallery",
+    "maxSteps": 100,
+    "intervalMillis": 750,
+    "seed": 20260912,
+    "execute": true,
+    "enableScroll": true,
+    "enableBacktrack": true,
+    "recoverPopups": true,
+    "maxBacktracks": 20,
+    "specialHandling": {
+      "mode": "safe",
+      "consentPolicy": "accept",
+      "permissionPolicy": "allow",
+      "paywallPolicy": "dismiss",
+      "adPolicy": "dismiss",
+      "reviewPolicy": "dismiss",
+      "onboardingPolicy": "advance",
+      "maxAttempts": 3
+    },
+    "rules": {
+      "denyText": ["删除", "永久删除", "移至回收站", "编辑", "分享", "发送", "设为", "delete", "remove", "trash", "edit", "share", "send", "set as"]
+    }
+  }
+}

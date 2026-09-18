@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "xtest-nova-runtime-bundle/v1",
+  "components": [
+    {
+      "name": "runner",
+      "file": "xtest-nova-runner.jar",
+      "kind": "jar",
+      "package": "",
+      "target": "/data/local/tmp/xtest-nova-runner.jar",
+      "size": 62485,
+      "sha256": "0A6BEA3D5829AFCE0B337EDD9EE92B2A746C729B82807EF5CD373876D1F0118D"
+    },
+    {
+      "name": "companion",
+      "file": "xtest-nova-companion.apk",
+      "kind": "apk",
+      "package": "com.openatx.xtest.popup",
+      "target": "/data/local/tmp/xtest-nova-companion.apk",
+      "size": 53657,
+      "sha256": "B342CA6A048597E750438DAD12279DAE59F491605C2E4895DC807B2AE2D71046",
+      "versionCode": 30718,
+      "versionName": "3.7.18-minimized-edge-handle",
+      "certificateSha256": "E49A7C6FB2EE0DBC4E6D3B6790D9DCF981D80F6B76628EB84755E7E1DA3A46DA"
+    },
+    {
+      "name": "uiautomatorHost",
+      "file": "xtest-nova-uiautomator-host.apk",
+      "kind": "apk",
+      "package": "com.openatx.xtest.nova.uiautomator",
+      "target": "/data/local/tmp/xtest-nova-uiautomator-host.apk",
+      "size": 8783,
+      "sha256": "A4C245E4B58A439E6D0FFEDB741E374C66621474A1DD37EF66941565483A1DCB",
+      "versionCode": 2,
+      "versionName": "0.2.0-platform-only",
+      "certificateSha256": "E49A7C6FB2EE0DBC4E6D3B6790D9DCF981D80F6B76628EB84755E7E1DA3A46DA"
+    },
+    {
+      "name": "uiautomatorTest",
+      "file": "xtest-nova-uiautomator-test.apk",
+      "kind": "apk",
+      "package": "com.openatx.xtest.nova.uiautomator.test",
+      "target": "/data/local/tmp/xtest-nova-uiautomator-test.apk",
+      "size": 25167,
+      "sha256": "4C994965F92D7C22C1DAED5F55AC237757D3528437A0B73AF1E9CE2B45CAC16D",
+      "versionCode": 2,
+      "versionName": "0.2.0-platform-only",
+      "certificateSha256": "E49A7C6FB2EE0DBC4E6D3B6790D9DCF981D80F6B76628EB84755E7E1DA3A46DA"
+    }
+  ]
+}

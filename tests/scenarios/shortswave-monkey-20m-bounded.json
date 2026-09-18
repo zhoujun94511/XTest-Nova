@@ -1,0 +1,15 @@
+{
+  "requestId": "shortswave-monkey-20m-bounded-20260915",
+  "package": "com.shorts.wave.drama",
+  "durationSeconds": 1200,
+  "throttleMillis": 500,
+  "seed": 20260915,
+  "lowBatteryExit": true,
+  "minBatteryPercent": 15,
+  "renderFallbackMode": "bounded",
+  "activityMode": "none",
+  "controlBlacklist": [
+    "购买", "支付", "订阅", "试用", "充值", "安装", "评价", "分享", "登录", "注册",
+    "buy", "purchase", "pay", "subscribe", "trial", "install", "review", "share", "sign in", "sign up"
+  ]
+}

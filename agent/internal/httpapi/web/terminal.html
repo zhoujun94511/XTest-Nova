@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#050b13">
+  <base href="/">
+  <title>XTest Nova · 受控终端</title>
+  <link rel="icon" href="assets/media/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/terminal.css?v=2">
+</head>
+<body>
+  <main class="terminal-shell">
+    <header class="terminal-header">
+      <div class="terminal-title"><span class="terminal-mark">N</span><div><strong>XTest Nova 终端</strong><small>受控设备 Shell 会话</small></div></div>
+      <span id="state" class="terminal-state pending"><i></i><span>正在连接</span></span>
+    </header>
+    <div class="terminal-notice" role="note">此入口仅在显式启用旧版非安全接口时开放。关闭页面将终止当前 PTY 会话。</div>
+    <pre id="output" class="terminal-output" aria-live="polite" aria-label="终端输出"></pre>
+    <form id="command" class="terminal-command">
+      <label for="input" class="sr-only">设备 Shell 命令</label>
+      <span class="prompt" aria-hidden="true">$</span>
+      <input id="input" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="输入命令并按 Enter" autofocus>
+      <button id="interrupt" type="button" title="发送 Ctrl+C">Ctrl+C</button>
+      <button type="submit">发送</button>
+    </form>
+  </main>
+  <script defer src="assets/js/terminal.js?v=2"></script>
+</body>
+</html>
