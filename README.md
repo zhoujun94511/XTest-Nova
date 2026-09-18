@@ -37,31 +37,31 @@ XTest Nova 把探索、Monkey、录制回放、性能采集和远程控制放在
 
 运行概览
 
-![运行概览](pic/控制台-运行概览.png)
+<img src="pic/控制台-运行概览.png" alt="运行概览" width="880" />
 
 应用管理
 
-![应用管理](pic/控制台-应用管理.png)
+<img src="pic/控制台-应用管理.png" alt="应用管理" width="880" />
 
 自动化测试
 
-![自动化测试](pic/控制台-自动化测试.png)
+<img src="pic/控制台-自动化测试.png" alt="自动化测试" width="880" />
 
 设备远控
 
-![设备远控](pic/控制台-设备远控.png)
+<img src="pic/控制台-设备远控.png" alt="设备远控" width="880" />
 
 性能采集
 
-![性能采集](pic/控制台-性能采集.png)
+<img src="pic/控制台-性能采集.png" alt="性能采集" width="880" />
 
 测试产物
 
-![测试产物](pic/控制台-测试产物.png)
+<img src="pic/控制台-测试产物.png" alt="测试产物" width="880" />
 
 运行诊断
 
-![运行诊断](pic/控制台-运行诊断.png)
+<img src="pic/控制台-运行诊断.png" alt="运行诊断" width="880" />
 
 </div>
 

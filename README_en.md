@@ -37,31 +37,31 @@ On-device overlay and web console.
 
 Overview
 
-![Overview](pic/控制台-运行概览.png)
+<img src="pic/控制台-运行概览.png" alt="Overview" width="880" />
 
 Apps
 
-![Apps](pic/控制台-应用管理.png)
+<img src="pic/控制台-应用管理.png" alt="Apps" width="880" />
 
 Automation
 
-![Automation](pic/控制台-自动化测试.png)
+<img src="pic/控制台-自动化测试.png" alt="Automation" width="880" />
 
 Remote control
 
-![Remote control](pic/控制台-设备远控.png)
+<img src="pic/控制台-设备远控.png" alt="Remote control" width="880" />
 
 Performance
 
-![Performance](pic/控制台-性能采集.png)
+<img src="pic/控制台-性能采集.png" alt="Performance" width="880" />
 
 Artifacts
 
-![Artifacts](pic/控制台-测试产物.png)
+<img src="pic/控制台-测试产物.png" alt="Artifacts" width="880" />
 
 Diagnostics
 
-![Diagnostics](pic/控制台-运行诊断.png)
+<img src="pic/控制台-运行诊断.png" alt="Diagnostics" width="880" />
 
 </div>
 
