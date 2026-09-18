@@ -18,9 +18,10 @@ M4.2 提供独立于随机 Runner 和智能遍历的版本化录制回放链。�
 - `0.1..4` 倍时间轴速度；
 - 每个动作执行前检查目标应用仍在前台；
 - 从 `resumeFrom` 动作序号进行中断续播；
+- `loops`：默认 1 次，`2..50` 次有限循环，`-1` 直到手动停止；
 - 与随机 Runner、智能遍历、其他录制或回放会话互斥。
 
-本阶段仍不读取输入法 composing 候选态、视频断言和循环执行。最终文本只在用户明确点击
+本阶段仍不读取输入法 composing 候选态和视频断言。最终文本只在用户明确点击
 “采集最终文本”后，从当前聚焦的非密码输入框读取；也可由控制端在输入法最终提交后显式
 写入录制会话。密码字段及资源 ID、描述、输入类型或掩码文本显示为密码、PIN、OTP、银行卡、支付等敏感语义的字段会被保守拒绝；即使设备错误报告 `password=false` 也不会直接采集。未知动作和除返回键以外的按键不会被静默伪装为可用能力。
 
@@ -42,6 +43,9 @@ M4.2 提供独立于随机 Runner 和智能遍历的版本化录制回放链。�
 ## 查询、停止和取得用例
 
 - `GET /v1/recordings/current`：录制状态和已归并动作数；
+- `GET /v1/recordings?package=<包名>`：列出已保存用例；
+- `GET /v1/recordings/cases/{id}`：读取完整已保存用例；
+- `DELETE /v1/recordings/cases/{id}`：携带 `X-XTest-Control: true` 删除指定已保存用例目录；
 - `GET /v1/recordings/drafts?package=<包名>`：列出异常中断后保留的恢复草稿；
 - `POST /v1/recordings/drafts/{id}/finalize`：携带 `X-XTest-Control: true` 验证并固化草稿；
 - `DELETE /v1/recordings/drafts/{id}`：携带 `X-XTest-Control: true` 显式丢弃草稿；
@@ -51,6 +55,7 @@ M4.2 提供独立于随机 Runner 和智能遍历的版本化录制回放链。�
 - `POST /v1/recordings/current/focused-text`：携带当前 owner 凭证，自动读取当前聚焦的非密码输入框最终文本和中心坐标；
 - `POST /v1/recordings/current/key`：携带当前 owner 凭证，记录白名单内的返回键（Android keyCode 4）；
 - `POST /v1/recordings/current/assertions/screenshot`：携带当前 owner 凭证，记录当前屏幕感知哈希及允许距离。
+- `PUT /v1/recordings/current/excluded-bounds`：携带当前 owner 凭证，更新悬浮窗排除区，避免移动控制条后把拖动或按钮点记录进用例。
 
 默认保存路径：
 
@@ -80,6 +85,7 @@ M4.2 提供独立于随机 Runner 和智能遍历的版本化录制回放链。�
   "execute": true,
   "speed": 1,
   "resumeFrom": 0,
+  "loops": 1,
   "case": {
     "schemaVersion": "xtest-recording/v1",
     "name": "open-detail",
@@ -93,7 +99,7 @@ M4.2 提供独立于随机 Runner 和智能遍历的版本化录制回放链。�
 }
 ```
 
-`execute=true` 是强制门禁。服务先校验 schema、动作上限、时间顺序、坐标、按键白名单和完整性摘要，再确认目标包位于前台。回放期间每个动作前都会再次检查前台包；离开目标应用立即以 `safety_stop` 停止。
+`execute=true` 是强制门禁。服务先校验 schema、动作上限、时间顺序、坐标、按键白名单和完整性摘要，再确认目标包位于前台。回放期间每个动作前都会再次检查前台包；系统权限框（PermissionController / 安装器）会先尝试点「允许」并等待目标回到前台，其它包离开目标应用立即以 `safety_stop` 停止。
 
 Unicode 文本会先聚焦可选坐标、全选并清空旧值，再通过隔离的官方 scrcpy 4.1 控制会话粘贴。该控制会话关闭视频，不会替换正在使用的画面流。`resumeFrom` 必须位于 `0..actions.length`，续播时以该动作作为新的相对时间起点。
 

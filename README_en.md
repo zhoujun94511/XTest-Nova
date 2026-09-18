@@ -1,8 +1,8 @@
 <div align="center">
 
-# XTest Nova
+![XTest Nova logo](pic/logo-96.png)
 
-<img src="agent/internal/httpapi/web/assets/media/favicon.svg" width="96" alt="XTest Nova logo" />
+# XTest Nova
 
 **An intelligent automation tool that runs on the phone**
 
@@ -11,9 +11,9 @@
 [![scrcpy](https://img.shields.io/badge/scrcpy-4.1-00C853.svg)](https://github.com/Genymobile/scrcpy)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[中文](README.md) • [English](README_en.md)
+[中文](README.md) · [English](README_en.md)
 
-[Features](#features) • [Architecture](#architecture) • [Quick Start](#quick-start) • [Documentation](#documentation)
+[Features](#features) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Screenshots](#screenshots) · [Documentation](#documentation)
 
 </div>
 
@@ -22,6 +22,48 @@
 XTest Nova puts exploration, Monkey, record/replay, performance capture, and remote control inside a single Agent on the phone. After you push it to a device, drive it from a browser or the HTTP API. Screenshots, logs, and performance data stay on the device, grouped by target app.
 
 One device, one Agent. Access defaults to a local ADB forward. Direct LAN access requires authentication, as documented below.
+
+## Screenshots
+
+On-device overlay and web console.
+
+<div align="center">
+
+**On-device**
+
+<img src="pic/设备-悬浮窗界面.jpg" alt="On-device overlay" width="360" /> <img src="pic/设备-智能遍历界面.jpg" alt="Exploration settings" width="360" />
+
+**Web console**
+
+Overview
+
+![Overview](pic/控制台-运行概览.png)
+
+Apps
+
+![Apps](pic/控制台-应用管理.png)
+
+Automation
+
+![Automation](pic/控制台-自动化测试.png)
+
+Remote control
+
+![Remote control](pic/控制台-设备远控.png)
+
+Performance
+
+![Performance](pic/控制台-性能采集.png)
+
+Artifacts
+
+![Artifacts](pic/控制台-测试产物.png)
+
+Diagnostics
+
+![Diagnostics](pic/控制台-运行诊断.png)
+
+</div>
 
 ## Features
 
@@ -47,7 +89,7 @@ One device, one Agent. Access defaults to a local ADB forward. Direct LAN access
 **API and delivery**
 
 - The web console and versioned `/v1/*` APIs are available together, so you can plug Nova into an existing test platform.
-- Ship one Agent file per device ABI. On start it unpacks and installs Runner, Companion, and UiAutomator.
+- Ship one Agent file per device ABI. On start, it unpacks and installs Runner, Companion, and UiAutomator.
 - Listeners default to loopback. LAN access needs a token. High-risk command APIs stay off unless you turn them on.
 
 The full interface list, compatibility scope, and limits are in the [HTTP contract](docs/compliance/http-contract.md) and [compatibility matrix](docs/compliance/compatibility.md).
@@ -72,12 +114,12 @@ Nova Agent (on device :7912)
 
 A release build produces ARM64 and ARMv7 Agents. Deploy only the file that matches the device. The Agent then verifies and installs the rest of the runtime. Sample / fixture apps are not part of the runtime and are never installed automatically.
 
-| Component | Role |
-| --- | --- |
-| Agent | On-device service entry: API, sessions, security, and artifacts |
-| Runner | Exploration, taps, swipes, and keys on the device |
-| Companion | Overlay, permissions, and on-device parameters |
-| UiAutomator | UI tree used by exploration and recording |
+| Component   | Role                                                            |
+|-------------|-----------------------------------------------------------------|
+| Agent       | On-device service entry: API, sessions, security, and artifacts |
+| Runner      | Exploration, taps, swipes, and keys on the device               |
+| Companion   | Overlay, permissions, and on-device parameters                  |
+| UiAutomator | UI tree used by exploration and recording                       |
 
 ## Quick Start
 
@@ -173,6 +215,10 @@ Start here for daily use:
 - [Compatibility matrix](docs/compliance/compatibility.md)
 
 Design notes, implementation plans, and historical validation reports live under `docs/` by topic and are not listed here one by one. Use the [documentation index](docs/README.md) when you need a specific device run or remediation record.
+
+## Acknowledgements
+
+Thanks to [XTest](https://github.com/y-grey/XTest) for the reference and inspiration.
 
 ## Version and license
 

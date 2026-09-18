@@ -81,6 +81,35 @@
     return value;
   };
 
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  const ensureForeground = async pkg => {
+    const current = async () => {
+      const payload = await api('/foregroundPkg', {uiSilent: true});
+      return payload && payload.package ? payload.package : '';
+    };
+    if ((await current()) === pkg) return;
+    try { await api(`/v1/apps/${encodeURIComponent(pkg)}/launch`, {method: 'POST'}); }
+    catch (error) { /* launch can race the subsequent foreground poll */ }
+    const deadline = Date.now() + 12000;
+    let foreground = '';
+    while (Date.now() < deadline) {
+      foreground = await current();
+      if (foreground === pkg || isPermissionController(foreground)) {
+        if (foreground === pkg) return;
+      }
+      await sleep(250);
+    }
+    if (isPermissionController(foreground)) return;
+    throw new Error(foreground ? `目标应用未能进入前台，当前前台是 ${foreground}` : '目标应用未能进入前台');
+  };
+
+  const isPermissionController = pkg => {
+    const value = String(pkg || '').toLowerCase();
+    return value.includes('permissioncontroller') || value.includes('packageinstaller')
+      || pkg === 'com.miui.securitycenter' || pkg === 'com.lbe.security.miui';
+  };
+
   const selectPackage = value => {
 	model.selectedPackage = String(value || '').trim();
 	const selected = model.packages.find(item => item.packageName === model.selectedPackage);
@@ -330,21 +359,40 @@
     'explore-stop': async () => { if (!model.explorationState) await refreshExploration(true); await api('/v1/exploration/sessions/current', {method: 'DELETE', headers: ownerHeaders(model.explorationState)}); await refreshExploration(); toast('智能探索已停止'); },
     'record-start': async () => {
       const name = required('#record-name', '请输入用例名称');
-      await api('/v1/recordings', jsonBody({package: packageName(), name, task: q('#record-task').value.trim()}));
+      const target = packageName();
+      await ensureForeground(target);
+      await api('/v1/recordings', jsonBody({package: target, name, task: q('#record-task').value.trim()}));
       await refreshRecordReplay('record'); toast('录制已开始，请在设备上完成操作');
     },
     'record-stop': async () => { if (!model.recordState) await refreshRecordReplay('record', true); await api('/v1/recordings/current', {method: 'DELETE', headers: ownerHeaders(model.recordState)}); await refreshRecordReplay('record'); await loadCases(); toast('录制已停止并保存'); },
     'record-state': () => refreshRecordReplay('record'),
     'record-list': loadCases,
+    'record-delete-case': async () => {
+      if (!model.selectedCaseID) throw new Error('请先选择一个已保存用例');
+      const selected = model.cases.find(item => item.id === model.selectedCaseID);
+      const name = selected?.name || '该用例';
+      if (!window.confirm(`确定删除「${name}」？此操作不可恢复。`)) return;
+      await api(`/v1/recordings/cases/${encodeURIComponent(model.selectedCaseID)}`, {method: 'DELETE'});
+      await loadCases();
+      toast('已删除用例');
+    },
     'replay-start': async () => {
       if (!model.selectedCaseID) throw new Error('请先选择一个已保存用例');
       const recordedCase = await api(`/v1/recordings/cases/${encodeURIComponent(model.selectedCaseID)}`);
-      await api('/v1/replays', jsonBody({execute: true, speed: Number(q('#replay-speed').value), caseFingerprint: recordedCase.integrity, case: recordedCase}));
+      await ensureForeground(recordedCase.package || packageName());
+      await api('/v1/replays', jsonBody({execute: true, speed: Number(q('#replay-speed').value), loops: Number(q('#replay-loops').value), caseFingerprint: recordedCase.integrity, case: recordedCase}));
       await refreshRecordReplay('replay'); toast('用例回放已开始');
     },
     'replay-stop': async () => { if (!model.replayState) await refreshRecordReplay('replay', true); await api('/v1/replays/current', {method: 'DELETE', headers: ownerHeaders(model.replayState)}); await refreshRecordReplay('replay'); toast('用例回放已停止'); },
     'replay-state': () => refreshRecordReplay('replay'),
-    'perf-start': async () => { PerformanceView.reset(); await api('/v1/performance/sessions', jsonBody({package: packageName(), intervalSeconds: Number(q('#perf-interval').value), durationSeconds: Number(q('#perf-duration').value)})); await refreshPerformance(); toast('性能采集已开始'); },
+    'perf-start': async () => {
+      const target = packageName();
+      await ensureForeground(target);
+      PerformanceView.reset();
+      await api('/v1/performance/sessions', jsonBody({package: target, intervalSeconds: Number(q('#perf-interval').value), durationSeconds: Number(q('#perf-duration').value)}));
+      await refreshPerformance();
+      toast('性能采集已开始');
+    },
     'perf-refresh': refreshPerformance,
     'perf-stop': async () => {
       if (!model.performanceState) await refreshPerformance(true);

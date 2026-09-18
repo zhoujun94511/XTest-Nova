@@ -2,7 +2,6 @@ package com.openatx.xtest.nova.uiautomator.test;
 
 import android.app.Instrumentation;
 import android.app.UiAutomation;
-import android.app.Activity;
 import android.content.Context;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -70,15 +69,36 @@ public final class NovaInstrumentation extends Instrumentation {
 
     @Override
     public void onStart() {
-        Bundle result = new Bundle();
         try {
+            // Do not call Instrumentation.finish(). Android 16 crashes with
+            // "Cannot call disconnect() while connecting". Agent force-stops
+            // the host package when the provider stops.
             serve();
-            result.putString("status", "stopped");
-            finish(Activity.RESULT_OK, result);
         } catch (Throwable error) {
-            result.putString("error", error.toString());
-            finish(Activity.RESULT_CANCELED, result);
+            Log.e(TAG, "nova server stopped", error);
         }
+    }
+
+    private UiAutomation connectedAutomation() {
+        // Keep the default getUiAutomation() flags. Switching flags while the
+        // first connect is in flight also calls disconnect() and crashes.
+        long deadline = SystemClock.elapsedRealtime() + 12000L;
+        IllegalStateException last = null;
+        while (SystemClock.elapsedRealtime() < deadline) {
+            UiAutomation automation = getUiAutomation();
+            try {
+                automation.getWindows();
+                return automation;
+            } catch (IllegalStateException error) {
+                last = error;
+                String message = String.valueOf(error.getMessage());
+                if (!message.contains("not connected") && !message.contains("while connecting")) {
+                    throw error;
+                }
+                SystemClock.sleep(150);
+            }
+        }
+        throw last != null ? last : new IllegalStateException("UiAutomation not connected");
     }
 
     private void serve() throws IOException {
@@ -150,12 +170,24 @@ public final class NovaInstrumentation extends Instrumentation {
         if ("/health".equals(path)) {
             respond(socket.getOutputStream(), 200, "application/json", "{\"status\":\"ok\",\"service\":\"xtest-nova-uiautomator\"}");
         } else if ("/v1/hierarchy".equals(path)) {
-            respondHierarchy(socket.getOutputStream(), hierarchy());
+            try {
+                respondHierarchy(socket.getOutputStream(), hierarchy());
+            } catch (Exception error) {
+                respondUnavailable(socket.getOutputStream(), error);
+            }
         } else if ("/v1/windows".equals(path)) {
-            respond(socket.getOutputStream(), 200, "application/json", windows());
+            try {
+                respond(socket.getOutputStream(), 200, "application/json", windows());
+            } catch (Exception error) {
+                respondUnavailable(socket.getOutputStream(), error);
+            }
         } else if ("/v1/wait-stable".equals(path)) {
-            getUiAutomation().waitForIdle(500, 5000);
-            respond(socket.getOutputStream(), 200, "application/json", "{\"stable\":true}");
+            try {
+                connectedAutomation().waitForIdle(500, 5000);
+                respond(socket.getOutputStream(), 200, "application/json", "{\"stable\":true}");
+            } catch (Exception error) {
+                respondUnavailable(socket.getOutputStream(), error);
+            }
         } else if ("/v1/diagnostics".equals(path)) {
             long uptime = System.currentTimeMillis() - startedAtMillis;
             respond(socket.getOutputStream(), 200, "application/json", "{\"requests\":" + requests
@@ -176,7 +208,7 @@ public final class NovaInstrumentation extends Instrumentation {
 
     private byte[] hierarchy() throws Exception {
         long hierarchyStarted = SystemClock.elapsedRealtimeNanos();
-        UiAutomation automation = getUiAutomation();
+        UiAutomation automation = connectedAutomation();
         // Do not put waitForIdle on the mandatory capture path. On continuously
         // animated system UI it may not honor its global timeout. Callers that
         // require a stability barrier can use /v1/wait-stable explicitly.
@@ -290,7 +322,7 @@ public final class NovaInstrumentation extends Instrumentation {
     }
 
     private String windows() {
-        List<AccessibilityWindowInfo> values = getUiAutomation().getWindows();
+        List<AccessibilityWindowInfo> values = connectedAutomation().getWindows();
         StringBuilder json = new StringBuilder("{\"windows\":[");
         for (int i = 0; i < values.size(); i++) {
             AccessibilityWindowInfo window = values.get(i);
@@ -328,6 +360,12 @@ public final class NovaInstrumentation extends Instrumentation {
 
     private static String jsonEscape(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private void respondUnavailable(OutputStream output, Exception error) throws IOException {
+        lastFailure = String.valueOf(error);
+        failures++;
+        respond(output, 503, "application/json", "{\"error\":\"" + jsonEscape(lastFailure) + "\"}");
     }
 
     private static void respond(OutputStream output, int status, String contentType, String body) throws IOException {

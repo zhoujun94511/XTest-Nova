@@ -35,6 +35,7 @@ try{
     $previousCgo=$env:CGO_ENABLED;$previousGoos=$env:GOOS;$previousGoarch=$env:GOARCH;$previousGoarm=$env:GOARM
     $env:GOCACHE=Join-Path $PSScriptRoot '.gocache';New-Item -ItemType Directory -Force $env:GOCACHE|Out-Null
     $env:GOPROXY='off';$env:GOFLAGS='-mod=vendor'
+    Remove-Item Env:GOOS,Env:GOARCH,Env:GOARM -ErrorAction SilentlyContinue
     go test ./...;if($LASTEXITCODE-ne 0){throw 'Go tests failed'}
     New-Item -ItemType Directory -Force "$PSScriptRoot\dist"|Out-Null
     $env:CGO_ENABLED='0';$env:GOOS='linux';$env:GOARCH='arm64'

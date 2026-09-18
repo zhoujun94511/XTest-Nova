@@ -43,6 +43,10 @@ func TestMeasureStartupProducesPercentilesAndBaselineVerdict(t *testing.T) {
 	if len(commands.calls) != 26 {
 		t.Fatalf("calls = %v", commands.calls)
 	}
+	joined := strings.Join(commands.calls, "\n")
+	if strings.Index(joined, "am force-stop") < 0 || strings.Index(joined, "am force-stop") > strings.Index(joined, "am start -W") {
+		t.Fatalf("cold startup must force-stop before measuring: %v", commands.calls)
+	}
 }
 
 func TestMeasureWarmStartupBackgroundsTaskAndRequiresEnoughBaselineSamples(t *testing.T) {

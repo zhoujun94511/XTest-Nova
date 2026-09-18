@@ -36,8 +36,9 @@ type Manager struct {
 	running        bool
 	owned          bool
 	idleTimeout    time.Duration
-	idleTimer      *time.Timer
-	generation     uint64
+	idleTimer             *time.Timer
+	generation            uint64
+	systemDumpUnreliable  bool
 }
 
 const (
@@ -169,6 +170,136 @@ func (m *Manager) Screenshot(ctx context.Context) ([]byte, error) {
 func (m *Manager) Hierarchy(ctx context.Context) (string, error) {
 	m.captureMu.Lock()
 	defer m.captureMu.Unlock()
+	// Dump and Nova instrumentation must not be bound to the HTTP request
+	// context. CommandContext treats cancel as SIGKILL; Monkey used to abort
+	// /v1/hierarchy/raw in 5s and kill a still-running platform dump.
+	work, cancel := m.dumpContext()
+	defer cancel()
+	_ = ctx
+	xml, err := m.collectHierarchy(work)
+	if err == nil || !shouldPromoteNova(m.novaPrimaryReady(), err) {
+		return xml, err
+	}
+	m.systemDumpUnreliable = true
+	if promoteErr := m.promoteNovaPrimary(); promoteErr != nil {
+		return "", fmt.Errorf("%w; nova promote: %v", err, promoteErr)
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		xml, err = m.collectHierarchy(work)
+		if err == nil {
+			return xml, nil
+		}
+		timer := time.NewTimer(400 * time.Millisecond)
+		select {
+		case <-work.Done():
+			timer.Stop()
+			return xml, err
+		case <-timer.C:
+		}
+	}
+	return xml, err
+}
+
+func (m *Manager) dumpContext() (context.Context, context.CancelFunc) {
+	timeout := m.timeout
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	if timeout < 30*time.Second && (m.novaMode == "nova" || m.systemDumpUnreliable) {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+func (m *Manager) deviceSDK(ctx context.Context) int {
+	if m.executor == nil {
+		return 0
+	}
+	output, err := m.executor.Run(ctx, "getprop", "ro.build.version.sdk")
+	if err != nil {
+		return 0
+	}
+	sdk := 0
+	for _, r := range strings.TrimSpace(output) {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		sdk = sdk*10 + int(r-'0')
+	}
+	return sdk
+}
+
+// PrepareHierarchy selects a dump backend that this Android build can finish.
+// API 34+ kills or hangs platform `uiautomator dump`; start Nova first and do
+// not run that command.
+func (m *Manager) PrepareHierarchy(ctx context.Context) error {
+	if m.deviceSDK(ctx) < 34 {
+		return nil
+	}
+	m.systemDumpUnreliable = true
+	m.mu.Lock()
+	if m.novaMode == "system" || m.novaMode == "shadow" {
+		m.novaMode = "nova"
+	}
+	mode := m.novaMode
+	m.mu.Unlock()
+	if mode != "nova" {
+		return nil
+	}
+	return m.startNova()
+}
+
+func (m *Manager) ensureNovaPrimary() error {
+	m.mu.Lock()
+	need := m.novaMode == "nova" || m.systemDumpUnreliable
+	running := m.running
+	m.mu.Unlock()
+	if !need || running {
+		return nil
+	}
+	return m.startNova()
+}
+
+func (m *Manager) novaPrimaryReady() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.novaMode == "nova" && m.running
+}
+
+func shouldPromoteNova(novaReady bool, err error) bool {
+	if novaReady || err == nil {
+		return false
+	}
+	return isUnreliableSystemDump(err)
+}
+
+func isUnreliableSystemDump(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "system-dump") && (strings.Contains(message, "killed") || strings.Contains(message, "did not create readable output"))
+}
+
+func isTransientNovaDump(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "without nodes") || strings.Contains(message, "EOF") || strings.Contains(message, "connection refused") || strings.Contains(message, "not connected") || strings.Contains(message, "returned 503")
+}
+
+func (m *Manager) promoteNovaPrimary() error {
+	m.mu.Lock()
+	m.novaMode = "nova"
+	m.mu.Unlock()
+	return m.startNova()
+}
+
+func (m *Manager) collectHierarchy(ctx context.Context) (string, error) {
+	if err := m.ensureNovaPrimary(); err != nil && m.systemDumpUnreliable {
+		return "", err
+	}
 	if err := m.waitForShadow(ctx); err != nil {
 		return "", err
 	}
@@ -178,20 +309,24 @@ func (m *Manager) Hierarchy(ctx context.Context) (string, error) {
 	m.hierarchyMu.Unlock()
 	var failures []error
 	for index, provider := range providers {
+		if provider.Name() == "system-dump" && m.systemDumpUnreliable {
+			continue
+		}
 		started := time.Now()
-		c, cancel := context.WithTimeout(ctx, m.timeout)
-		readyErr := provider.Ready(c)
+		readyErr := provider.Ready(ctx)
 		var value Snapshot
 		var err error
 		if readyErr == nil {
-			value, err = provider.Hierarchy(c)
+			value, err = provider.Hierarchy(ctx)
 		} else {
 			err = readyErr
 		}
-		cancel()
 		duration := time.Since(started)
 		m.observe(provider.Name(), value, duration, err, true)
-		if err != nil && provider.Name() == "nova-provider" && strings.Contains(err.Error(), "without nodes") {
+		if err != nil && provider.Name() == "system-dump" && isUnreliableSystemDump(fmt.Errorf("system-dump: %w", err)) {
+			m.systemDumpUnreliable = true
+		}
+		if err != nil && provider.Name() == "nova-provider" && isTransientNovaDump(err) {
 			// On some Android 15/16 builds the first accessibility query after
 			// instrumentation startup only primes the active-window cache. Retry on
 			// the same owner before tearing it down; a separate system dump cannot
@@ -199,7 +334,7 @@ func (m *Manager) Hierarchy(ctx context.Context) (string, error) {
 			select {
 			case <-ctx.Done():
 				err = ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(400 * time.Millisecond):
 				retryStarted := time.Now()
 				retryContext, retryCancel := context.WithTimeout(ctx, m.timeout)
 				if readyErr = provider.Ready(retryContext); readyErr == nil {
@@ -225,7 +360,7 @@ func (m *Manager) Hierarchy(ctx context.Context) (string, error) {
 		// command cannot own the accessibility bridge at the same time. Release a
 		// failed Nova primary before attempting the system provider, otherwise the
 		// fallback is predictably killed and is not a real fallback at all.
-		if provider.Name() == "nova-provider" && index+1 < len(providers) {
+		if provider.Name() == "nova-provider" && index+1 < len(providers) && !m.systemDumpUnreliable {
 			fallbackContext, fallbackCancel := context.WithTimeout(ctx, m.timeout)
 			stopErr := m.stopNovaForFallback(fallbackContext)
 			fallbackCancel()
@@ -537,7 +672,7 @@ func (m *Manager) startNova() error {
 	}
 	host, port, _ := net.SplitHostPort(address)
 	baseURL := "http://" + net.JoinHostPort(host, port)
-	provider := NewNovaProvider(baseURL+"/v1/hierarchy", baseURL+"/health", token, &http.Client{Timeout: m.timeout})
+	provider := NewNovaProvider(baseURL+"/v1/hierarchy", baseURL+"/health", token, &http.Client{Timeout: 30 * time.Second})
 	m.mu.Lock()
 	if m.running {
 		m.mu.Unlock()

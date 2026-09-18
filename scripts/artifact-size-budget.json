@@ -22,7 +22,7 @@
     {
       "name": "companion",
       "path": "agent/internal/runtimebundle/assets/xtest-nova-companion.apk",
-      "baselineBytes": 53657,
+      "baselineBytes": 61847,
       "maximumDeltaBytes": 4096
     }
   ],

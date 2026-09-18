@@ -356,6 +356,7 @@ func TestControlHeaderProtectsConfigurationAndStop(t *testing.T) {
 		{http.MethodPost, "/stop", ""},
 		{http.MethodPost, "/v1/recordings/drafts/missing/finalize", `{}`},
 		{http.MethodDelete, "/v1/recordings/drafts/missing", ""},
+		{http.MethodDelete, "/v1/recordings/cases/missing", ""},
 	} {
 		response := httptest.NewRecorder()
 		api.Primary().ServeHTTP(response, httptest.NewRequest(test.method, test.path, strings.NewReader(test.body)))

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.openatx.xtest.popup" android:versionCode="30718" android:versionName="3.7.18-minimized-edge-handle">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.openatx.xtest.popup" android:versionCode="30728" android:versionName="3.7.28-monkey-minimize">
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN"/>

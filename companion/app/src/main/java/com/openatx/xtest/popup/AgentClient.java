@@ -70,9 +70,30 @@ final class AgentClient {
         return response;
     }
     static String performanceStart(String pkg) throws IOException {
-        String response = request(PRIMARY, "POST", "/v1/performance/sessions", "{\"package\":\"" + escape(pkg) + "\"}");
+        String response = request(PRIMARY, "POST", "/v1/performance/sessions", "{\"package\":\"" + escape(pkg) + "\"}", "", "", 20000);
         rememberPerformanceIdentity(response);
         return response;
+    }
+    static String startupMeasure(String pkg, String mode) throws IOException {
+        return request(PRIMARY, "POST", "/v1/performance/startup",
+                "{\"package\":\"" + escape(pkg) + "\",\"mode\":\"" + escape(mode) + "\",\"runs\":5,\"cooldownMillis\":1000}",
+                "", "", 180000);
+    }
+    static String formatStartup(String response) {
+        String mode = string(response, "mode", "");
+        String modeLabel = "warm".equals(mode) ? "热启动" : "冷启动";
+        String verdict = string(response, "verdict", "");
+        String reason = string(response, "reason", "");
+        String path = string(response, "path", "");
+        String statistics = object(response, "statistics");
+        String p95 = "--";
+        try { p95 = String.format(Locale.US, "%.0f ms", new JSONObject(statistics).optDouble("p95Millis", 0)); }
+        catch (Exception ignored) { }
+        return modeLabel
+                + "\n判定: " + (verdict.isEmpty() ? "--" : verdict)
+                + "\nP95: " + p95
+                + (reason.isEmpty() ? "" : "\n" + reason)
+                + (path.isEmpty() ? "" : "\n文件: " + path);
     }
     static String performanceState() throws IOException {
         String response = request(PRIMARY, "GET", "/v1/performance/sessions/current", null);
@@ -155,11 +176,67 @@ final class AgentClient {
         return formatPerformance(response) + "\n记录: " + integer(response, "rows", 0) + " 行"
                 + (path.isEmpty() ? "" : "\n文件: " + path);
     }
-    static String recordingStart(String pkg, String task, String name, double overlayLeft, double overlayBottom) throws IOException {
+    static String launchApp(String pkg) throws IOException {
+        return request(PRIMARY, "POST", "/v1/apps/" + path(pkg) + "/launch", "{}", "", "", 15000);
+    }
+    static String foregroundPackage() throws IOException {
+        return string(request(PRIMARY, "GET", "/foregroundPkg", null), "package", "");
+    }
+    static void ensureForeground(String pkg) throws IOException {
+        if (pkg == null || pkg.isEmpty()) throw new IOException("missing target package");
+        if (pkg.equals(foregroundPackage())) return;
+        try { launchApp(pkg); } catch (IOException ignored) { }
+        String current = "";
+        long deadline = System.currentTimeMillis() + 12000;
+        while (System.currentTimeMillis() < deadline) {
+            current = foregroundPackage();
+            if (pkg.equals(current) || isPermissionController(current)) {
+                if (pkg.equals(current)) return;
+            }
+            try { Thread.sleep(250); }
+            catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted while waiting for foreground", interrupted);
+            }
+        }
+        if (isPermissionController(current)) return;
+        throw new IOException("target package is not foreground: " + current);
+    }
+    static boolean isPermissionController(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return false;
+        String value = pkg.toLowerCase(Locale.US);
+        return value.contains("permissioncontroller") || value.contains("packageinstaller")
+                || "com.miui.securitycenter".equals(pkg) || "com.lbe.security.miui".equals(pkg);
+    }
+    static String packageFromCase(String caseJson, String fallback) {
+        try {
+            String value = new JSONObject(caseJson).optString("package", "");
+            if (!value.isEmpty()) return value;
+        } catch (Exception ignored) { }
+        return fallback == null ? "" : fallback;
+    }
+    static String recordingStart(String pkg, String task, String name, String excludedBoundsJson) throws IOException {
         String response = request(PRIMARY, "POST", "/v1/recordings", "{\"package\":\"" + escape(pkg) + "\",\"task\":\"" + escape(task) + "\",\"name\":\"" + escape(name)
-                + "\",\"excludedBounds\":{\"left\":" + overlayLeft + ",\"top\":0,\"right\":1,\"bottom\":" + overlayBottom + "}}");
+                + "\",\"excludedBounds\":" + excludedBoundsJson + "}");
         rememberRecordingIdentity(response);
         return response;
+    }
+    static String recordingExcludedBounds(String excludedBoundsJson) throws IOException {
+        return request(PRIMARY, "PUT", "/v1/recordings/current/excluded-bounds", excludedBoundsJson, recordingSessionId, recordingOwnerToken);
+    }
+    static String formatAgentError(Exception error) {
+        String message = error == null || error.getMessage() == null ? "" : error.getMessage();
+        if (message.contains("target package is not foreground")) {
+            return "目标应用未能进入前台。请确认应用已安装，或等启动完成后再试。";
+        }
+        int jsonAt = message.indexOf('{');
+        if (jsonAt >= 0) {
+            try {
+                String detail = new JSONObject(message.substring(jsonAt)).optString("error", "");
+                if (!detail.isEmpty()) return detail;
+            } catch (Exception ignored) { }
+        }
+        return message.isEmpty() ? "启动失败" : message;
     }
     static String recordingStop() throws IOException {
         String response = request(PRIMARY, "DELETE", "/v1/recordings/current", null, recordingSessionId, recordingOwnerToken);
@@ -193,6 +270,9 @@ final class AgentClient {
     static String recordingCase(String id) throws IOException {
         return request(PRIMARY, "GET", "/v1/recordings/cases/" + path(id), null);
     }
+    static String recordingCaseDelete(String id) throws IOException {
+        return request(PRIMARY, "DELETE", "/v1/recordings/cases/" + path(id), null);
+    }
     static List<DraftEntry> recordingDrafts(String pkg) throws IOException {
         String response = request(PRIMARY, "GET", "/v1/recordings/drafts?package=" + path(pkg), null);
         List<DraftEntry> result = new ArrayList<>();
@@ -211,9 +291,19 @@ final class AgentClient {
         return request(PRIMARY, "POST", "/v1/recordings/drafts/" + path(id) + "/finalize", "{}");
     }
     static String replayStart(String caseJson) throws IOException {
-        String response = request(PRIMARY, "POST", "/v1/replays", "{\"execute\":true,\"speed\":1,\"case\":" + caseJson + "}");
+        return replayStart(caseJson, 1);
+    }
+    static String replayStart(String caseJson, int loops) throws IOException {
+        String response = request(PRIMARY, "POST", "/v1/replays", "{\"execute\":true,\"speed\":1,\"loops\":" + loops + ",\"case\":" + caseJson + "}");
         rememberReplayIdentity(response);
         return response;
+    }
+    static String formatReplayProgress(String response) {
+        int cycle = (int) integer(response, "cycle", 1);
+        int loops = (int) integer(response, "loops", 1);
+        if (loops < 0) return "循环中 · 第 " + cycle + " 轮";
+        if (loops > 1) return "第 " + cycle + "/" + loops + " 轮";
+        return "";
     }
     static String replayState() throws IOException {
         String response = request(PRIMARY, "GET", "/v1/replays/current", null);
@@ -290,11 +380,15 @@ final class AgentClient {
     }
 
     private static String request(String base, String method, String path, String body, String sessionId, String ownerToken) throws IOException {
+        return request(base, method, path, body, sessionId, ownerToken, "DELETE".equals(method) ? 15000 : 5000);
+    }
+
+    private static String request(String base, String method, String path, String body, String sessionId, String ownerToken, int readTimeoutMs) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(base + path).openConnection();
         try {
             connection.setRequestMethod(method);
             connection.setConnectTimeout(3000);
-            connection.setReadTimeout("DELETE".equals(method) ? 15000 : 5000);
+            connection.setReadTimeout(readTimeoutMs);
             connection.setRequestProperty("X-XTest-Control", "true");
             if (sessionId != null && !sessionId.isEmpty()) connection.setRequestProperty("X-XTest-Session-Id", sessionId);
             if (ownerToken != null && !ownerToken.isEmpty()) connection.setRequestProperty("X-XTest-Owner-Token", ownerToken);

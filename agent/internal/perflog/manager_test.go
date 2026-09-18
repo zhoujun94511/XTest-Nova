@@ -268,4 +268,35 @@ func TestPerformanceSessionsAreRetainedWithinLimit(t *testing.T) {
 	}
 }
 
+func TestStartLaunchesLauncherWithoutForceStop(t *testing.T) {
+	collector := &sessionLaunchCollector{}
+	manager := New(t.TempDir(), collector)
+	state, err := manager.Start(context.Background(), "com.example.app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Running {
+		t.Fatalf("state=%#v", state)
+	}
+	_, _ = manager.Stop(context.Background())
+	joined := strings.Join(collector.calls, "\n")
+	if !strings.Contains(joined, "cmd package resolve-activity --brief com.example.app") {
+		t.Fatalf("calls=%v", collector.calls)
+	}
+	if !strings.Contains(joined, "am start -W -n com.example.app/.MainActivity") {
+		t.Fatalf("calls=%v", collector.calls)
+	}
+	if strings.Contains(joined, "force-stop") {
+		t.Fatalf("continuous session must not force-stop: %v", collector.calls)
+	}
+}
+
+type sessionLaunchCollector struct {
+	startupCommands
+}
+
+func (s *sessionLaunchCollector) Performance(context.Context, string) (novasystem.Performance, error) {
+	return novasystem.Performance{CPU: novasystem.CPUInfo{PID: 9}, Memory: map[string]int{"total pss": 1}}, nil
+}
+
 func filepathSlash(value string) string { return strings.ReplaceAll(value, "\\", "/") }

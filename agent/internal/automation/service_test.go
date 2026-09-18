@@ -297,6 +297,20 @@ func TestNovaLifecycleSelectsProviderAndStopsOnlyOwnedPackage(t *testing.T) {
 	}
 }
 
+func TestStartNovaTimeoutForceStopsHost(t *testing.T) {
+	executor := &novaExecutor{started: make(chan struct{})}
+	manager := NewWithProviders(executor, 200*time.Millisecond)
+	if err := manager.ConfigureNova("nova", "127.0.0.1:9"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(); err == nil {
+		t.Fatal("Start must fail when Nova health never appears")
+	}
+	if executor.forceStop != novaHostPackage {
+		t.Fatalf("timeout must force-stop host, got %q", executor.forceStop)
+	}
+}
+
 func TestFailedNovaReleasesUiAutomationBeforeSystemFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
@@ -441,6 +455,72 @@ func TestOldInstrumentationExitDoesNotClearRestartedState(t *testing.T) {
 	}
 	if err := manager.Stop(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type sdkExecutor struct{ sdk string }
+
+func (e sdkExecutor) Run(_ context.Context, name string, args ...string) (string, error) {
+	if name == "getprop" && len(args) > 0 && args[0] == "ro.build.version.sdk" {
+		return e.sdk, nil
+	}
+	return "", errors.New("nova UiAutomator package is not installed")
+}
+
+func (sdkExecutor) RunBytes(context.Context, string, ...string) ([]byte, error) { return nil, nil }
+
+func TestHierarchyCompletesAfterCallerCancels(t *testing.T) {
+	provider := &fakeHierarchyProvider{name: "system-dump", value: Snapshot{Source: "system-dump", XML: `<hierarchy><node text="ok" /></hierarchy>`}}
+	manager := NewWithProviders(nil, time.Second, provider)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	document, err := manager.Hierarchy(ctx)
+	if err != nil || document != provider.value.XML {
+		t.Fatalf("canceled caller must not SIGKILL dump: doc=%q err=%v", document, err)
+	}
+}
+
+func TestPrepareHierarchyDisablesPlatformDumpOnAPI34(t *testing.T) {
+	manager := NewWithProviders(sdkExecutor{sdk: "36"}, time.Second)
+	if err := manager.ConfigureNova("shadow", "127.0.0.1:9009"); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.PrepareHierarchy(context.Background()); err == nil {
+		t.Fatal("PrepareHierarchy must surface Nova startup failure")
+	}
+	if !manager.systemDumpUnreliable {
+		t.Fatal("API 36 must disable platform uiautomator dump")
+	}
+	if manager.novaMode != "nova" {
+		t.Fatalf("shadow on API 36 must become nova, got %q", manager.novaMode)
+	}
+}
+
+func TestIsTransientNovaDumpIncludesConnectErrors(t *testing.T) {
+	for _, message := range []string{
+		"nova-provider: Get http://127.0.0.1:9009/v1/hierarchy EOF",
+		`nova-provider returned 503 Error`,
+		`nova-provider: UiAutomation not connected`,
+	} {
+		if !isTransientNovaDump(errors.New(message)) {
+			t.Fatalf("expected transient: %s", message)
+		}
+	}
+	if isTransientNovaDump(errors.New("upstream proxy status 503 from ads.example")) {
+		t.Fatal("generic 503 text must not be treated as a Nova connect retry")
+	}
+}
+
+func TestShouldPromoteNovaAfterKilledSystemDump(t *testing.T) {
+	killed := errors.New("hierarchy collection failed: system-dump: uiautomator dump did not create readable output: signal: killed")
+	if !shouldPromoteNova(false, killed) {
+		t.Fatal("killed system dump should promote Nova")
+	}
+	if shouldPromoteNova(true, killed) {
+		t.Fatal("ready Nova must not be promoted again")
+	}
+	if shouldPromoteNova(false, errors.New("hierarchy collection failed: system-dump: permission denied")) {
+		t.Fatal("unrelated system-dump errors must not promote Nova")
 	}
 }
 

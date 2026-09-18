@@ -100,7 +100,7 @@ func (f *fakeExecutor) Run(_ context.Context, name string, args ...string) (stri
 		return "Starting", nil
 	}
 	if name == "dumpsys" && len(args) > 0 && args[0] == "package" {
-		return "versionCode=30718 minSdk=28", nil
+		return "versionCode=30728 minSdk=28", nil
 	}
 	if name == "dumpsys" && len(args) > 0 && args[0] == "window" && f.foreground != "" {
 		return "mCurrentFocus=Window{123 u0 " + f.foreground + "/.MainActivity}", nil
@@ -117,7 +117,7 @@ func TestPopupStatusReportsRunningState(t *testing.T) {
 	if err := ManagePopup(context.Background(), "status", executor, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "installed=true running=true versionCode=30718") {
+	if !strings.Contains(output.String(), "installed=true running=true versionCode=30728") {
 		t.Fatalf("unexpected status: %s", output.String())
 	}
 }

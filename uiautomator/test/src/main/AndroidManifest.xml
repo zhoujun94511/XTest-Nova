@@ -6,7 +6,7 @@
         android:supportsRtl="true" />
     <instrumentation
         android:name=".NovaInstrumentation"
-        android:functionalTest="true"
+        android:functionalTest="false"
         android:handleProfiling="false"
         android:targetPackage="com.openatx.xtest.nova.uiautomator" />
 </manifest>

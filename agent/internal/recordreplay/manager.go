@@ -114,6 +114,7 @@ type ReplayConfig struct {
 	Case            Case    `json:"case"`
 	ResumeFrom      int     `json:"resumeFrom,omitempty"`
 	CaseFingerprint string  `json:"caseFingerprint,omitempty"`
+	Loops           int     `json:"loops,omitempty"`
 }
 
 type ReplayState struct {
@@ -129,6 +130,8 @@ type ReplayState struct {
 	Actions           int                `json:"actions"`
 	Completed         int                `json:"completedActions"`
 	ResumeFrom        int                `json:"resumeFrom,omitempty"`
+	Cycle             int                `json:"cycle,omitempty"`
+	Loops             int                `json:"loops,omitempty"`
 	StopReason        string             `json:"stopReason,omitempty"`
 	Error             string             `json:"error,omitempty"`
 	ArtifactDir       string             `json:"artifactDir,omitempty"`
@@ -526,14 +529,56 @@ func (m *Manager) requireRecordingForeground(ctx context.Context) (uint64, error
 	if !running {
 		return 0, errors.New("recording session is not active")
 	}
-	foreground, err := m.foreground.ForegroundPackage(ctx)
-	if err != nil {
+	if err := m.ensureReplayForeground(ctx, target); err != nil {
 		return 0, err
 	}
-	if foreground != target {
-		return 0, fmt.Errorf("target package is not foreground: %s", foreground)
-	}
 	return generation, nil
+}
+
+func (m *Manager) ensureReplayForeground(ctx context.Context, target string) error {
+	deadline := time.Now().Add(12 * time.Second)
+	last := ""
+	for {
+		foreground, err := m.foreground.ForegroundPackage(ctx)
+		if err != nil {
+			return err
+		}
+		last = foreground
+		if foreground == target {
+			return nil
+		}
+		if !isPermissionController(foreground) {
+			return fmt.Errorf("target package is not foreground: %s", foreground)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("target package is not foreground: %s", last)
+		}
+		m.tryDismissPermissionDialog(ctx)
+		if err = waitContext(ctx, 350*time.Millisecond); err != nil {
+			return err
+		}
+	}
+}
+
+func (m *Manager) tryDismissPermissionDialog(ctx context.Context) {
+	if m.hierarchy == nil || m.executor == nil {
+		return
+	}
+	observation, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+	document, err := m.hierarchy.Hierarchy(observation)
+	cancel()
+	if err != nil || document == "" {
+		return
+	}
+	width, height, err := m.displaySize(ctx)
+	if err != nil {
+		return
+	}
+	point, ok := permissionAllowPoint(document, width, height)
+	if !ok {
+		return
+	}
+	_, _ = m.executor.Run(ctx, "input", "tap", strconv.Itoa(pixel(point.X, width)), strconv.Itoa(pixel(point.Y, height)))
 }
 
 func (m *Manager) StopRecording(ctx context.Context) (RecordingState, error) {
@@ -744,6 +789,23 @@ func (m *Manager) ValidateRecordingOwner(sessionID, ownerToken string) error {
 	active := m.recording.Running || m.recording.Stopping || m.recording.Finalizing
 	m.mu.Unlock()
 	return validateExecutionOwner(identity, coordinator, active, sessionID, ownerToken)
+}
+
+func (m *Manager) SetExcludedBoundsOwned(sessionID, ownerToken string, bounds *Bounds) error {
+	if bounds == nil || !bounds.valid() {
+		return errors.New("invalid excludedBounds")
+	}
+	if err := m.ValidateRecordingOwner(sessionID, ownerToken); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.recording.Running {
+		return errors.New("recording is not running")
+	}
+	cloned := *bounds
+	m.excluded = &cloned
+	return nil
 }
 
 func (m *Manager) RecordingState() RecordingState {
@@ -975,22 +1037,62 @@ func pruneCases(root, keep string, limit int) error {
 	return nil
 }
 
-func (m *Manager) LoadCase(id string) (Case, error) {
+func (m *Manager) caseJSONPath(id string) (string, error) {
 	decoded, err := base64.RawURLEncoding.DecodeString(id)
 	if err != nil || len(decoded) == 0 {
-		return Case{}, errors.New("invalid recording id")
+		return "", errors.New("invalid recording id")
 	}
 	relative := filepath.Clean(filepath.FromSlash(string(decoded)))
 	if filepath.IsAbs(relative) || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.Base(relative) != "case.json" {
-		return Case{}, errors.New("invalid recording path")
+		return "", errors.New("invalid recording path")
 	}
 	path := filepath.Join(m.root, relative)
 	info, err := os.Stat(path)
 	if err != nil {
-		return Case{}, err
+		return "", err
 	}
 	if info.IsDir() || info.Size() > 4<<20 {
-		return Case{}, errors.New("invalid recording file")
+		return "", errors.New("invalid recording file")
+	}
+	return path, nil
+}
+
+func (m *Manager) DeleteCase(id string) error {
+	path, err := m.caseJSONPath(id)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Dir(path)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var value Case
+	if err = json.Unmarshal(content, &value); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	recordingBusy := m.recording.Running || m.recording.Stopping || m.recording.Finalizing || m.recordingPendingLocked()
+	recordingDir := ""
+	if m.recording.Path != "" {
+		recordingDir = filepath.Clean(filepath.Dir(filepath.FromSlash(m.recording.Path)))
+	}
+	replayBusy := m.replay.Running || m.replay.Stopping || m.replay.Finalizing
+	replayFingerprint := m.replay.CaseFingerprint
+	m.mu.Unlock()
+	if recordingBusy && recordingDir != "" && recordingDir == filepath.Clean(directory) {
+		return errors.New("active recording case cannot be deleted")
+	}
+	if replayBusy && replayFingerprint != "" && replayFingerprint == value.Integrity {
+		return errors.New("active replay case cannot be deleted")
+	}
+	return os.RemoveAll(directory)
+}
+
+func (m *Manager) LoadCase(id string) (Case, error) {
+	path, err := m.caseJSONPath(id)
+	if err != nil {
+		return Case{}, err
 	}
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -1020,6 +1122,12 @@ func (m *Manager) StartReplay(ctx context.Context, config ReplayConfig) (ReplayS
 	}
 	if config.Speed < 0.1 || config.Speed > 4 {
 		return m.ReplayState(), errors.New("speed must be between 0.1 and 4")
+	}
+	if config.Loops == 0 {
+		config.Loops = 1
+	}
+	if config.Loops < -1 || config.Loops > 50 {
+		return m.ReplayState(), errors.New("loops must be -1 or 1 through 50")
 	}
 	config.Case = cloneCase(config.Case)
 	caseFingerprint, fingerprintErr := config.Case.Fingerprint()
@@ -1053,12 +1161,8 @@ func (m *Manager) StartReplay(ctx context.Context, config ReplayConfig) (ReplayS
 			return m.ReplayState(), err
 		}
 	}
-	foreground, err := m.foreground.ForegroundPackage(ctx)
-	if err != nil || foreground != config.Case.Package {
-		if err != nil {
-			return m.ReplayState(), err
-		}
-		return m.ReplayState(), fmt.Errorf("target package is not foreground: %s", foreground)
+	if err := m.ensureReplayForeground(ctx, config.Case.Package); err != nil {
+		return m.ReplayState(), err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1074,6 +1178,7 @@ func (m *Manager) StartReplay(ctx context.Context, config ReplayConfig) (ReplayS
 	}
 	identity := execution.NewIdentity("replay", config.RequestID, uint64(time.Now().UnixNano()))
 	if m.coordinator != nil {
+		var err error
 		identity, err = m.coordinator.Acquire("replay", config.RequestID)
 		if err != nil {
 			return m.replay, err
@@ -1081,7 +1186,7 @@ func (m *Manager) StartReplay(ctx context.Context, config ReplayConfig) (ReplayS
 	}
 	now := time.Now().UTC()
 	replayContext, cancel := context.WithCancel(context.Background())
-	m.replay = ReplayState{RequestID: config.RequestID, Identity: identity, CaseFingerprint: caseFingerprint, Running: true, Package: config.Case.Package, StartedAt: &now, Actions: len(config.Case.Actions), Completed: config.ResumeFrom, ResumeFrom: config.ResumeFrom}
+	m.replay = ReplayState{RequestID: config.RequestID, Identity: identity, CaseFingerprint: caseFingerprint, Running: true, Package: config.Case.Package, StartedAt: &now, Actions: len(config.Case.Actions), Completed: config.ResumeFrom, ResumeFrom: config.ResumeFrom, Cycle: 1, Loops: config.Loops}
 	m.replayIdentity = identity
 	m.replayReceipts = execution.NewReceiptStore()
 	m.replayHasAssertions = false
@@ -1118,84 +1223,101 @@ func (m *Manager) runReplay(ctx context.Context, config ReplayConfig, done chan 
 		m.finishReplay("display_unavailable", err)
 		return
 	}
-	timelineStart := time.Now()
-	baseOffset := int64(0)
-	if config.ResumeFrom < len(config.Case.Actions) {
-		baseOffset = config.Case.Actions[config.ResumeFrom].OffsetMillis
-	}
-	for index := config.ResumeFrom; index < len(config.Case.Actions); index++ {
-		action := config.Case.Actions[index]
-		stepID := fmt.Sprintf("%s:step-%06d", config.RequestID, index+1)
-		observationID := fmt.Sprintf("case:%s:%d", strings.TrimPrefix(config.CaseFingerprint, "sha256:"), index)
-		actionBytes, _ := json.Marshal(action)
-		actionHash := sha256.Sum256(actionBytes)
-		receipt, duplicate, receiptErr := m.replayReceipts.Accept(execution.ActionReceipt{StepID: stepID, ObservationID: observationID, SourceFingerprint: config.CaseFingerprint, ActionFingerprint: hex.EncodeToString(actionHash[:])})
-		if receiptErr != nil {
-			m.finishReplay("safety_stop", receiptErr)
-			return
+	for cycle := 1; config.Loops < 0 || cycle <= config.Loops; cycle++ {
+		m.mu.Lock()
+		m.replay.Cycle = cycle
+		m.replay.Loops = config.Loops
+		m.mu.Unlock()
+		timelineStart := time.Now()
+		startIndex := 0
+		if cycle == 1 {
+			startIndex = config.ResumeFrom
 		}
-		if duplicate {
-			if receipt.Status == execution.ReceiptFailed || receipt.Status == execution.ReceiptRejected {
-				m.finishReplay("input_failed", errors.New(receipt.Error))
+		baseOffset := int64(0)
+		if startIndex < len(config.Case.Actions) {
+			baseOffset = config.Case.Actions[startIndex].OffsetMillis
+		}
+		for index := startIndex; index < len(config.Case.Actions); index++ {
+			action := config.Case.Actions[index]
+			stepID := fmt.Sprintf("%s:cycle-%04d:step-%06d", config.RequestID, cycle, index+1)
+			observationID := fmt.Sprintf("case:%s:%d:%d", strings.TrimPrefix(config.CaseFingerprint, "sha256:"), cycle, index)
+			actionBytes, _ := json.Marshal(action)
+			actionHash := sha256.Sum256(actionBytes)
+			receipt, duplicate, receiptErr := m.replayReceipts.Accept(execution.ActionReceipt{StepID: stepID, ObservationID: observationID, SourceFingerprint: config.CaseFingerprint, ActionFingerprint: hex.EncodeToString(actionHash[:])})
+			if receiptErr != nil {
+				m.finishReplay("safety_stop", receiptErr)
 				return
 			}
-			continue
-		}
-		target := timelineStart.Add(time.Duration(float64(action.OffsetMillis-baseOffset)/config.Speed) * time.Millisecond)
-		delay := time.Until(target)
-		if delay > 0 {
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				m.finishReplay("stopped", nil)
-				return
-			case <-timer.C:
+			if duplicate {
+				if receipt.Status == execution.ReceiptFailed || receipt.Status == execution.ReceiptRejected {
+					m.finishReplay("input_failed", errors.New(receipt.Error))
+					return
+				}
+				continue
 			}
-		}
-		foreground, foregroundErr := m.foreground.ForegroundPackage(ctx)
-		if foregroundErr != nil || foreground != config.Case.Package {
-			if foregroundErr == nil {
-				foregroundErr = fmt.Errorf("target package is not foreground: %s", foreground)
-			}
-			m.finishReplay("safety_stop", foregroundErr)
-			return
-		}
-		if action.Target != nil && m.hierarchy != nil && (action.Type == "tap" || action.Type == "double_tap" || action.Type == "long_press" || action.Type == "swipe") {
-			observationContext, cancelObservation := context.WithTimeout(ctx, 750*time.Millisecond)
-			document, hierarchyErr := m.hierarchy.Hierarchy(observationContext)
-			cancelObservation()
-			if hierarchyErr == nil {
-				if relocated, found := relocateTarget(document, *action.Target, width, height); found {
-					action.Start = relocated
+			target := timelineStart.Add(time.Duration(float64(action.OffsetMillis-baseOffset)/config.Speed) * time.Millisecond)
+			delay := time.Until(target)
+			if delay > 0 {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					m.finishReplay("stopped", nil)
+					return
+				case <-timer.C:
 				}
 			}
-		}
-		action.DurationMillis = int64(float64(action.DurationMillis) / config.Speed)
-		if action.DurationMillis == 0 && (action.Type == "long_press" || action.Type == "swipe") {
-			action.DurationMillis = 1
-		}
-		if err = m.execute(ctx, action, width, height); err != nil {
-			reason := "input_failed"
-			if action.Type == "assert_screenshot" {
-				reason = "assertion_failed"
-				var assertion *screenshotAssertionError
-				if errors.As(err, &assertion) {
-					if path, saveErr := m.saveAssertionFailure(config.Case, index, assertion); saveErr == nil {
-						err = fmt.Errorf("%w; diagnostics=%s", err, filepath.ToSlash(path))
-					} else {
-						err = fmt.Errorf("%w; diagnostics error: %v", err, saveErr)
+			if foregroundErr := m.ensureReplayForeground(ctx, config.Case.Package); foregroundErr != nil {
+				m.finishReplay("safety_stop", foregroundErr)
+				return
+			}
+			if action.Target != nil && m.hierarchy != nil && (action.Type == "tap" || action.Type == "double_tap" || action.Type == "long_press" || action.Type == "swipe") {
+				observationContext, cancelObservation := context.WithTimeout(ctx, 750*time.Millisecond)
+				document, hierarchyErr := m.hierarchy.Hierarchy(observationContext)
+				cancelObservation()
+				if hierarchyErr == nil {
+					if relocated, found := relocateTarget(document, *action.Target, width, height); found {
+						action.Start = relocated
 					}
 				}
 			}
-			m.replayReceipts.Finish(stepID, execution.ReceiptFailed, reason, err.Error(), "", "")
-			m.finishReplay(reason, err)
+			action.DurationMillis = int64(float64(action.DurationMillis) / config.Speed)
+			if action.DurationMillis == 0 && (action.Type == "long_press" || action.Type == "swipe") {
+				action.DurationMillis = 1
+			}
+			if err = m.execute(ctx, action, width, height); err != nil {
+				reason := "input_failed"
+				if action.Type == "assert_screenshot" {
+					reason = "assertion_failed"
+					var assertion *screenshotAssertionError
+					if errors.As(err, &assertion) {
+						if path, saveErr := m.saveAssertionFailure(config.Case, index, assertion); saveErr == nil {
+							err = fmt.Errorf("%w; diagnostics=%s", err, filepath.ToSlash(path))
+						} else {
+							err = fmt.Errorf("%w; diagnostics error: %v", err, saveErr)
+						}
+					}
+				}
+				m.replayReceipts.Finish(stepID, execution.ReceiptFailed, reason, err.Error(), "", "")
+				m.finishReplay(reason, err)
+				return
+			}
+			m.replayReceipts.Finish(stepID, execution.ReceiptExecuted, "", "", "", "")
+			m.mu.Lock()
+			m.replay.Completed = index + 1
+			m.mu.Unlock()
+		}
+		if config.Loops > 0 && cycle == config.Loops {
+			break
+		}
+		if waitErr := waitContext(ctx, 400*time.Millisecond); waitErr != nil {
+			m.finishReplay("stopped", nil)
 			return
 		}
-		m.replayReceipts.Finish(stepID, execution.ReceiptExecuted, "", "", "", "")
-		m.mu.Lock()
-		m.replay.Completed = index + 1
-		m.mu.Unlock()
+		if foregroundErr := m.ensureReplayForeground(ctx, config.Case.Package); foregroundErr != nil {
+			m.finishReplay("safety_stop", foregroundErr)
+			return
+		}
 	}
 	m.finishReplay("completed", nil)
 }

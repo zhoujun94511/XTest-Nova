@@ -7,6 +7,8 @@ import android.app.Service;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Handler;
@@ -17,6 +19,7 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.Button;
@@ -75,6 +78,10 @@ public final class OverlayService extends Service {
     private static final int TABLET_LARGE_PANEL_MAX_HEIGHT_DP = 720;
     private WindowManager manager;
     private View view;
+    private WindowManager.LayoutParams overlayParams;
+    private long lastExclusionPublishAt;
+    private int recordingX = -1;
+    private int recordingY = -1;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean destroyed;
@@ -212,21 +219,34 @@ public final class OverlayService extends Service {
 
     private void selectApp(AppCatalog.Entry app, Flow flow) {
         getSharedPreferences("nova", MODE_PRIVATE).edit().putString("package", app.packageName).apply();
-        if (flow == Flow.PERFORMANCE) showPerformance(app.packageName, app.label);
+        if (flow == Flow.PERFORMANCE) showPerformanceMenu(app.packageName, app.label);
         else if (flow == Flow.RECORD_REPLAY) showRecordReplay(app.packageName);
         else showMonkey(new MonkeyDraft(app.packageName, app.label));
+    }
+
+    private void showPerformanceMenu(String packageName, String appLabel) {
+        ++generation;
+        LinearLayout box = column(PANEL);
+        box.addView(titleBar("性能测试"));
+        box.addView(label(appLabel, 13, Color.LTGRAY));
+        box.addView(menuButton("持续采集", WHITE, v -> showPerformance(packageName, appLabel)));
+        box.addView(menuButton("冷启动耗时", WHITE, v -> showStartup(packageName, appLabel, "cold")));
+        box.addView(menuButton("热启动耗时", WHITE, v -> showStartup(packageName, appLabel, "warm")));
+        box.addView(menuButton("返回", WHITE, v -> showMain()));
+        replace(box, largePanelWidth(), WindowManager.LayoutParams.WRAP_CONTENT, false, 0, 0);
     }
 
     private void showPerformance(String packageName, String appLabel) {
         int token = ++generation;
         LinearLayout box = column(PANEL); box.addView(compactHeader(appLabel, this::stopPerformance));
-        TextView metrics = label("正在读取性能数据…", compactMetricsTextSizeSp(), WHITE); metrics.setPadding(dp(8), dp(6), dp(8), dp(6));
+        TextView metrics = label("正在打开目标应用…", compactMetricsTextSizeSp(), WHITE); metrics.setPadding(dp(8), dp(6), dp(8), dp(6));
         metrics.setLineSpacing(dp(1), 1.0f);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(false); scroll.addView(metrics);
         box.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         replace(box, dp(compactWidthDp()), dp(performanceHeightDp()), false, 0, 0);
         worker.execute(() -> {
             try {
+                AgentClient.ensureForeground(packageName);
                 String response = AgentClient.performanceStart(packageName);
                 runUi(() -> {
                     if (token != generation) { worker.execute(() -> { try { AgentClient.performanceStop(); } catch (Exception ignored) { } }); return; }
@@ -234,7 +254,26 @@ public final class OverlayService extends Service {
                     main.postDelayed(() -> pollPerformance(metrics, token), 1000);
                 });
             } catch (Exception error) {
-                runUi(() -> { if (token == generation) metrics.setText(error.getMessage() != null && error.getMessage().contains("package not found") ? "应用未启动" : "采样失败\n" + error.getMessage()); });
+                runUi(() -> { if (token == generation) metrics.setText("采样失败\n" + AgentClient.formatAgentError(error)); });
+            }
+        });
+    }
+
+    private void showStartup(String packageName, String appLabel, String mode) {
+        int token = ++generation;
+        String title = "warm".equals(mode) ? "正在测量热启动，请勿操作…" : "正在测量冷启动，请勿操作…";
+        LinearLayout box = column(PANEL); box.addView(compactHeader(appLabel, this::showMain));
+        TextView metrics = label(title, compactMetricsTextSizeSp(), WHITE); metrics.setPadding(dp(8), dp(6), dp(8), dp(6));
+        metrics.setLineSpacing(dp(1), 1.0f);
+        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(false); scroll.addView(metrics);
+        box.addView(scroll, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+        replace(box, dp(compactWidthDp()), dp(performanceHeightDp()), false, 0, 0);
+        worker.execute(() -> {
+            try {
+                String response = AgentClient.startupMeasure(packageName, mode);
+                runUi(() -> { if (token == generation) metrics.setText(AgentClient.formatStartup(response)); });
+            } catch (Exception error) {
+                runUi(() -> { if (token == generation) metrics.setText("测量失败\n" + AgentClient.formatAgentError(error)); });
             }
         });
     }
@@ -302,31 +341,79 @@ public final class OverlayService extends Service {
     }
 
     private void startRecording(String packageName, String task, String name, TextView state) {
-        state.setText("启动中…");
+        state.setText("正在打开目标应用…");
         worker.execute(() -> {
             try {
-                DisplayMetrics display = getResources().getDisplayMetrics();
-                double overlayLeft = Math.max(0, (display.widthPixels - dp(compactWidthDp() + FLOATING_PANEL_MARGIN_DP)) / (double) display.widthPixels);
-                double overlayBottom = Math.min(1, dp(recordingHeightDp() + FLOATING_PANEL_BOTTOM_DP) / (double) display.heightPixels);
-                AgentClient.recordingStart(packageName, task, name, overlayLeft, overlayBottom);
-                runUi(() -> showRecordingRunning(packageName));
-            } catch (Exception error) { runUi(() -> state.setText("启动失败：" + error.getMessage())); }
+                AgentClient.ensureForeground(packageName);
+                recordingX = -1;
+                recordingY = -1;
+                int handleWidth = recordingHandleWidth();
+                int handleHeight = recordingHandleHeight();
+                int[] anchor = recordingAnchor(handleWidth, handleHeight);
+                String exclusion = excludedBoundsFromWindow(anchor[0], anchor[1], handleWidth, handleHeight);
+                AgentClient.recordingStart(packageName, task, name, exclusion);
+                runUi(() -> {
+                    recordingX = -1;
+                    recordingY = -1;
+                    showRecordingCollapsed(packageName);
+                });
+            } catch (Exception error) { runUi(() -> state.setText(AgentClient.formatAgentError(error))); }
         });
     }
 
     private void showRecordingRunning(String packageName) {
         int token = ++generation;
         LinearLayout box = column(PANEL);
-        box.addView(label("录制中", 18, RED));
+        TextView handle = label("录制中 · 拖动或收起", 15, RED);
+        handle.setMinHeight(dp(40));
+        handle.setGravity(Gravity.CENTER);
+        attachRecordingDrag(handle, null);
+        box.addView(handle);
         box.addView(label(packageName, 12, WHITE));
         TextView state = label("已记录 0 个动作", 12, Color.LTGRAY); box.addView(state);
         box.addView(menuButton("采集最终文本", WHITE, v -> appendRecordingAction(state, AgentClient::recordingFocusedText)));
         box.addView(menuButton("记录返回键", WHITE, v -> appendRecordingAction(state, AgentClient::recordingBack)));
         box.addView(menuButton("截图断言", WHITE, v -> appendRecordingAction(state, AgentClient::recordingScreenshot)));
         box.addView(menuButton("完成", WHITE, v -> finishRecording(packageName, state)));
-        replace(box, dp(compactWidthDp()), dp(recordingHeightDp()), false,
-                dp(FLOATING_PANEL_MARGIN_DP), dp(FLOATING_PANEL_BOTTOM_DP));
+        box.addView(menuButton("收起", AMBER, v -> {
+            rememberRecordingAnchor();
+            showRecordingCollapsed(packageName);
+        }));
+        int[] anchor = recordingAnchor(dp(compactWidthDp()), dp(recordingHeightDp()));
+        replace(box, dp(compactWidthDp()), WindowManager.LayoutParams.WRAP_CONTENT, false, anchor[0], anchor[1]);
+        publishRecordingExclusionAfterLayout();
         pollRecording(state, token);
+    }
+
+    private void showRecordingCollapsed(String packageName) {
+        int token = ++generation;
+        int width = recordingHandleWidth();
+        int height = recordingHandleHeight();
+        FrameLayout box = new FrameLayout(this);
+        TextView pill = label("录 0", isTablet() ? 14 : 12, WHITE);
+        pill.setContentDescription("recording-handle");
+        pill.setGravity(Gravity.CENTER);
+        pill.setPadding(0, 0, 0, 0);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(Color.argb(210, 176, 36, 28));
+        shape.setCornerRadius(dp(8));
+        pill.setBackground(shape);
+        box.addView(pill, new FrameLayout.LayoutParams(width, height, Gravity.CENTER));
+        attachRecordingDrag(pill, () -> expandRecordingControls(packageName));
+        int[] anchor = recordingAnchor(width, height);
+        replace(box, width, height, false, anchor[0], anchor[1]);
+        publishRecordingExclusionAfterLayout();
+        pollRecording(pill, token);
+    }
+
+    private void expandRecordingControls(String packageName) {
+        String body = estimatedExpandedExclusion();
+        worker.execute(() -> {
+            try {
+                if (body != null) AgentClient.recordingExcludedBounds(body);
+            } catch (Exception ignored) { }
+            runUi(() -> showRecordingRunning(packageName));
+        });
     }
 
     private void appendRecordingAction(TextView state, Request request) {
@@ -344,13 +431,13 @@ public final class OverlayService extends Service {
                 String response = AgentClient.recordingState();
                 runUi(() -> {
                     if (token != generation) return;
-                    state.setText("已记录 " + AgentClient.actions(response) + " 个动作");
+                    state.setText(recordingStatusText(state, AgentClient.actions(response)));
                     if (AgentClient.isRunning(response)) main.postDelayed(() -> pollRecording(state, token), 500);
                 });
             } catch (Exception error) {
                 runUi(() -> {
                     if (token != generation) return;
-                    state.setText("状态暂时不可达，正在重试：" + error.getMessage());
+                    state.setText(isRecordingHandle(state) ? "录 ?" : "状态暂时不可达，正在重试：" + error.getMessage());
                     main.postDelayed(() -> pollRecording(state, token), 2000);
                 });
             }
@@ -397,9 +484,16 @@ public final class OverlayService extends Service {
                         if (!cases.isEmpty()) list.addView(label("已保存用例", 13, Color.LTGRAY));
                         for (AgentClient.CaseEntry entry : cases) {
                             String display = (entry.task.isEmpty() ? "" : entry.task + " / ") + entry.name;
-                            Button row = menuButton(display + "  (" + entry.actions + ")", WHITE,
-                                    v -> startSavedReplay(packageName, entry, loading));
-                            row.setContentDescription("case:" + entry.id);
+                            LinearLayout row = new LinearLayout(this);
+                            row.setOrientation(LinearLayout.HORIZONTAL);
+                            row.setGravity(Gravity.CENTER_VERTICAL);
+                            Button play = menuButton(display + "  (" + entry.actions + ")", WHITE,
+                                    v -> confirmReplay(packageName, entry));
+                            play.setContentDescription("case:" + entry.id);
+                            Button delete = menuButton("删除", RED, v -> confirmDeleteSavedCase(packageName, entry));
+                            delete.setContentDescription("delete-case:" + entry.id);
+                            row.addView(play, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+                            row.addView(delete, new LinearLayout.LayoutParams(dp(72), LinearLayout.LayoutParams.WRAP_CONTENT));
                             list.addView(row);
                         }
                         scroll.addView(list);
@@ -412,6 +506,27 @@ public final class OverlayService extends Service {
         });
     }
 
+    private void confirmDeleteSavedCase(String packageName, AgentClient.CaseEntry entry) {
+        ++generation;
+        String display = (entry.task.isEmpty() ? "" : entry.task + " / ") + entry.name;
+        LinearLayout box = column(PANEL);
+        box.addView(titleBar("删除用例"));
+        box.addView(label(display, 14, WHITE));
+        box.addView(label("删除后无法恢复，截图和证据文件会一并移除。", 12, Color.LTGRAY));
+        box.addView(menuButton("确认删除", RED, v -> deleteSavedCase(packageName, entry)));
+        box.addView(menuButton("取消", WHITE, v -> showSavedCases(packageName)));
+        replace(box, largePanelWidth(), WindowManager.LayoutParams.WRAP_CONTENT, false, 0, 0);
+    }
+
+    private void deleteSavedCase(String packageName, AgentClient.CaseEntry entry) {
+        worker.execute(() -> {
+            try {
+                AgentClient.recordingCaseDelete(entry.id);
+                runUi(() -> showSavedCases(packageName));
+            } catch (Exception error) { runUi(() -> showMessage("删除失败", error.getMessage())); }
+        });
+    }
+
     private void finalizeRecordingDraft(String packageName, AgentClient.DraftEntry entry) {
         worker.execute(() -> {
             try {
@@ -421,14 +536,38 @@ public final class OverlayService extends Service {
         });
     }
 
-    private void startSavedReplay(String packageName, AgentClient.CaseEntry entry, TextView state) {
+    private void confirmReplay(String packageName, AgentClient.CaseEntry entry) {
+        ++generation;
+        String display = (entry.task.isEmpty() ? "" : entry.task + " / ") + entry.name;
+        LinearLayout box = column(PANEL);
+        box.addView(titleBar("回放用例"));
+        box.addView(label(display, 14, WHITE));
+        box.addView(menuButton("回放一次", WHITE, v -> startSavedReplay(packageName, entry, 1)));
+        box.addView(menuButton("循环播放", AMBER, v -> startSavedReplay(packageName, entry, -1)));
+        box.addView(menuButton("取消", WHITE, v -> showSavedCases(packageName)));
+        replace(box, largePanelWidth(), WindowManager.LayoutParams.WRAP_CONTENT, false, 0, 0);
+    }
+
+    private void startSavedReplay(String packageName, AgentClient.CaseEntry entry, int loops) {
+        showReplayPreparing(packageName, entry.name);
         worker.execute(() -> {
             try {
                 String caseJson = AgentClient.recordingCase(entry.id);
-                AgentClient.replayStart(caseJson);
+                AgentClient.ensureForeground(AgentClient.packageFromCase(caseJson, packageName));
+                AgentClient.replayStart(caseJson, loops);
                 runUi(() -> showReplayRunning(packageName, entry.name));
-            } catch (Exception error) { runUi(() -> showMessage("回放失败", error.getMessage())); }
+            } catch (Exception error) { runUi(() -> showMessage("回放失败", AgentClient.formatAgentError(error))); }
         });
+    }
+
+    private void showReplayPreparing(String packageName, String caseName) {
+        ++generation;
+        LinearLayout box = column(PANEL);
+        box.addView(label("准备回放", 18, RED));
+        box.addView(label(caseName, 13, WHITE));
+        box.addView(label("正在打开目标应用…", 12, Color.LTGRAY));
+        replace(box, dp(compactWidthDp()), WindowManager.LayoutParams.WRAP_CONTENT, false,
+                dp(FLOATING_PANEL_MARGIN_DP), dp(FLOATING_PANEL_BOTTOM_DP));
     }
 
     private void showReplayRunning(String packageName, String caseName) {
@@ -459,6 +598,8 @@ public final class OverlayService extends Service {
                     state.setText(result);
                     main.postDelayed(() -> pollReplay(packageName, state, token), 2000);
                 } else if (AgentClient.isRunning(result)) {
+                    String progress = AgentClient.formatReplayProgress(result);
+                    if (!progress.isEmpty()) state.setText(progress);
                     main.postDelayed(() -> pollReplay(packageName, state, token), 300);
                 } else if (AgentClient.isCompleted(result)) {
                     state.setText("回放完成");
@@ -520,7 +661,10 @@ public final class OverlayService extends Service {
                         draft.allowedActivities(), draft.blockedActivities(), draft.targets(), draft.blockedControls(), draft.targetCases,
                         draft.renderFallbackMode);
                 RecentMonkeyApps.record(this, draft.packageName);
-                runUi(() -> showMonkeyRunning(draft.packageName));
+                runUi(() -> {
+                    showMinimized();
+                    pollMonkey(generation);
+                });
             } catch (Exception error) { runUi(() -> state.setText("启动失败：" + error.getMessage())); }
         });
     }
@@ -683,32 +827,19 @@ public final class OverlayService extends Service {
         replace(box, largePanelWidth(), WindowManager.LayoutParams.WRAP_CONTENT, true, 0, 0);
     }
 
-    private void showMonkeyRunning(String packageName) {
-        int token = ++generation;
-        LinearLayout box = column(PANEL); box.addView(label("Monkey 运行中", 16, RED));
-        TextView state = label(packageName, 11, Color.LTGRAY); box.addView(state);
-        box.addView(menuButton("停止", RED, v -> {
-            asyncState(state, AgentClient::monkeyStop, "Monkey 已停止");
-            main.postDelayed(this::showMain, 500);
-        }));
-        replace(box, dp(compactWidthDp()), WindowManager.LayoutParams.WRAP_CONTENT, false,
-                dp(FLOATING_PANEL_MARGIN_DP), dp(FLOATING_PANEL_BOTTOM_DP));
-        pollMonkey(state, token);
-    }
-
-    private void pollMonkey(TextView state, int token) {
+    private void pollMonkey(int token) {
         worker.execute(() -> {
-            String response;
+            String response = null;
             boolean reachable = true;
             try { response = AgentClient.monkeyState(); }
-            catch (Exception error) { reachable = false; response = "Monkey 状态暂时不可达\n" + error.getMessage(); }
-            String result = response;
+            catch (Exception error) { reachable = false; }
             boolean retry = !reachable;
+            boolean running = reachable && AgentClient.isRunning(response);
             runUi(() -> {
                 if (token != generation) return;
-                if (retry) { state.setText(result); main.postDelayed(() -> pollMonkey(state, token), 2000); }
-                else if (AgentClient.isRunning(result)) main.postDelayed(() -> pollMonkey(state, token), 500);
-                else { state.setText("Monkey 已结束"); main.postDelayed(() -> { if (token == generation) showMain(); }, 700); }
+                if (retry) main.postDelayed(() -> pollMonkey(token), 2000);
+                else if (running) main.postDelayed(() -> pollMonkey(token), 500);
+                else main.postDelayed(() -> { if (token == generation) showMain(); }, 700);
             });
         });
     }
@@ -815,6 +946,155 @@ public final class OverlayService extends Service {
         TextView value = new TextView(this); value.setText(text); value.setTextSize(size); value.setTextColor(color);
         value.setGravity(Gravity.CENTER_VERTICAL); value.setPadding(dp(6), 0, dp(6), 0); return value;
     }
+    private String recordingStatusText(TextView state, int actions) {
+        return isRecordingHandle(state) ? "录 " + actions : "已记录 " + actions + " 个动作";
+    }
+
+    private static boolean isRecordingHandle(TextView state) {
+        return state != null && "recording-handle".equals(String.valueOf(state.getContentDescription()));
+    }
+
+    private int recordingHandleWidth() { return dp(isTablet() ? 64 : 52); }
+    private int recordingHandleHeight() { return dp(isTablet() ? 56 : 48); }
+
+    private void rememberRecordingAnchor() {
+        if (overlayParams == null) return;
+        recordingX = overlayParams.x;
+        recordingY = overlayParams.y;
+    }
+
+    private int[] recordingAnchor(int width, int height) {
+        DisplayMetrics display = getResources().getDisplayMetrics();
+        int x = recordingX >= 0 ? recordingX : 0;
+        int y = recordingY >= 0 ? recordingY : dp(MINIMIZED_TOP_INSET_DP);
+        return new int[]{
+                clamp(x, 0, Math.max(0, display.widthPixels - width)),
+                clamp(y, 0, Math.max(0, display.heightPixels - height))
+        };
+    }
+
+    private void attachRecordingDrag(View handle, Runnable onTap) {
+        final boolean[] dragging = {false};
+        handle.setOnTouchListener((v, event) -> {
+            if (overlayParams == null || view == null || manager == null) return false;
+            DisplayMetrics display = getResources().getDisplayMetrics();
+            int width = view.getWidth() > 0 ? view.getWidth() : overlayParams.width;
+            int height = view.getHeight() > 0 ? view.getHeight() : overlayParams.height;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    dragging[0] = false;
+                    overlayParams.x = clamp(overlayParams.x, 0, Math.max(0, display.widthPixels - width));
+                    overlayParams.y = clamp(overlayParams.y, 0, Math.max(0, display.heightPixels - height));
+                    handle.setTag(new int[]{overlayParams.x, overlayParams.y, Math.round(event.getRawX()), Math.round(event.getRawY())});
+                    return true;
+                case MotionEvent.ACTION_MOVE: {
+                    int[] start = tagInts(handle);
+                    if (start == null) return true;
+                    float dx = event.getRawX() - start[2];
+                    float dy = event.getRawY() - start[3];
+                    if (dx * dx + dy * dy < dp(6) * dp(6)) return true;
+                    dragging[0] = true;
+                    overlayParams.x = clamp(start[0] - Math.round(dx), 0, Math.max(0, display.widthPixels - width));
+                    overlayParams.y = clamp(start[1] + Math.round(dy), 0, Math.max(0, display.heightPixels - height));
+                    try { manager.updateViewLayout(view, overlayParams); } catch (IllegalArgumentException ignored) { }
+                    rememberRecordingAnchor();
+                    publishRecordingExclusion(false);
+                    return true;
+                }
+                case MotionEvent.ACTION_UP:
+                    handle.setTag(null);
+                    rememberRecordingAnchor();
+                    publishRecordingExclusion(true);
+                    if (!dragging[0] && onTap != null) onTap.run();
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    handle.setTag(null);
+                    rememberRecordingAnchor();
+                    publishRecordingExclusion(true);
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private static int[] tagInts(View view) {
+        Object value = view.getTag();
+        return value instanceof int[] ? (int[]) value : null;
+    }
+
+    private void publishRecordingExclusionAfterLayout() {
+        if (view == null) return;
+        view.post(() -> publishRecordingExclusion(true));
+    }
+
+    private void publishRecordingExclusion(boolean force) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!force && now - lastExclusionPublishAt < 120) return;
+        lastExclusionPublishAt = now;
+        String body = excludedBoundsFromView(view);
+        if (body == null && overlayParams != null) {
+            int width = overlayParams.width > 0 ? overlayParams.width : dp(compactWidthDp());
+            int height = overlayParams.height > 0 ? overlayParams.height : dp(recordingHeightDp());
+            body = excludedBoundsFromWindow(overlayParams.x, overlayParams.y, width, height);
+        }
+        if (body == null) return;
+        final String payload = body;
+        worker.execute(() -> { try { AgentClient.recordingExcludedBounds(payload); } catch (Exception ignored) { } });
+    }
+
+    private String estimatedExpandedExclusion() {
+        int width = dp(compactWidthDp());
+        int height = dp(recordingHeightDp());
+        int[] anchor = recordingAnchor(width, height);
+        return excludedBoundsFromWindow(anchor[0], anchor[1], width, height);
+    }
+
+    private String excludedBoundsFromView(View target) {
+        if (target == null || target.getWidth() <= 0 || target.getHeight() <= 0) return null;
+        int[] location = new int[2];
+        target.getLocationOnScreen(location);
+        return excludedBoundsPixels(location[0], location[1], target.getWidth(), target.getHeight());
+    }
+
+    private String excludedBoundsFromWindow(int x, int y, int width, int height) {
+        if (width <= 0 || height <= 0) return null;
+        int[] screen = realScreenSize();
+        return excludedBoundsPixels(screen[0] - width - x, y, width, height);
+    }
+
+    private String excludedBoundsPixels(int left, int top, int width, int height) {
+        int[] screen = realScreenSize();
+        if (screen[0] <= 0 || screen[1] <= 0 || width <= 0 || height <= 0) return null;
+        int pad = dp(16);
+        double l = clamp01((left - pad) / (double) screen[0]);
+        double t = clamp01((top - pad) / (double) screen[1]);
+        double r = clamp01((left + width + pad) / (double) screen[0]);
+        double b = clamp01((top + height + pad) / (double) screen[1]);
+        if (r <= l || b <= t) return null;
+        return "{\"left\":" + l + ",\"top\":" + t + ",\"right\":" + r + ",\"bottom\":" + b + "}";
+    }
+
+    private int[] realScreenSize() {
+        if (manager != null && Build.VERSION.SDK_INT >= 30) {
+            Rect bounds = manager.getMaximumWindowMetrics().getBounds();
+            return new int[]{bounds.width(), bounds.height()};
+        }
+        Point size = new Point();
+        if (manager != null) manager.getDefaultDisplay().getRealSize(size);
+        if (size.x > 0 && size.y > 0) return new int[]{size.x, size.y};
+        DisplayMetrics display = getResources().getDisplayMetrics();
+        return new int[]{display.widthPixels, display.heightPixels};
+    }
+
+    private static int clamp(int value, int minimum, int maximum) {
+        return Math.max(minimum, Math.min(maximum, value));
+    }
+
+    private static double clamp01(double value) {
+        return Math.max(0, Math.min(1, value));
+    }
+
     private TextView closeControl(Runnable action, int sizeDp, float textSizeSp) {
         TextView close = label("×", textSizeSp, RED);
         close.setGravity(Gravity.CENTER); close.setPadding(0, 0, 0, 0);
@@ -830,8 +1110,8 @@ public final class OverlayService extends Service {
                 focusable ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.END; params.x = x; params.y = y;
-        try { manager.addView(next, params); view = next; controlState = "visible"; }
-        catch (SecurityException | WindowManager.BadTokenException error) { view = null; stopSelf(); }
+        try { manager.addView(next, params); view = next; overlayParams = params; controlState = "visible"; }
+        catch (SecurityException | WindowManager.BadTokenException error) { view = null; overlayParams = null; stopSelf(); }
     }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private int screenWidth(double fraction) { DisplayMetrics m = getResources().getDisplayMetrics(); return (int) (m.widthPixels * fraction); }
@@ -852,7 +1132,7 @@ public final class OverlayService extends Service {
     @Override public void onDestroy() {
         destroyed = true; ++generation; worker.shutdownNow(); main.removeCallbacksAndMessages(null);
         if (view != null && manager != null) try { manager.removeView(view); } catch (IllegalArgumentException ignored) { }
-        view = null; controlState = "absent"; super.onDestroy();
+        view = null; overlayParams = null; controlState = "absent"; super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent) { return null; }
 }

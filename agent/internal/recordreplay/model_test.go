@@ -48,6 +48,85 @@ func TestSavedCasesListAndLoadWithinRoot(t *testing.T) {
 	}
 }
 
+func TestDeleteCaseRemovesDirectoryAndRejectsTraversal(t *testing.T) {
+	root := t.TempDir()
+	manager := New(root, nil, nil, nil, nil, nil)
+	value := Case{SchemaVersion: SchemaVersion, Name: "saved-case", Package: "com.example.app", RecordedAt: time.Unix(2, 0).UTC(), Actions: []Action{}}
+	if err := value.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "com.example.app", "Replay", "saved")
+	if err := os.MkdirAll(filepath.Join(directory, "screenshots"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := json.Marshal(value)
+	if err := os.WriteFile(filepath.Join(directory, "case.json"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "screenshots", "1.png"), []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases, err := manager.Cases("com.example.app")
+	if err != nil || len(cases) != 1 {
+		t.Fatalf("cases = %#v, %v", cases, err)
+	}
+	if err = manager.DeleteCase(cases[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if remaining, listErr := manager.Cases("com.example.app"); listErr != nil || len(remaining) != 0 {
+		t.Fatalf("remaining=%#v err=%v", remaining, listErr)
+	}
+	if _, err = os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatalf("case directory remained: %v", err)
+	}
+	if err = manager.DeleteCase("Li4vY2FzZS5qc29u"); err == nil {
+		t.Fatal("path traversal id was accepted")
+	}
+}
+
+func TestDeleteCaseRejectsActiveReplay(t *testing.T) {
+	root := t.TempDir()
+	manager := New(root, fakeCapture{}, fakeForeground{"com.example.app"}, &fakeExecutor{}, nil, nil)
+	value := Case{SchemaVersion: SchemaVersion, Name: "replay-lock", Package: "com.example.app", RecordedAt: time.Unix(3, 0).UTC(), Actions: []Action{
+		{Type: "tap", Start: Point{X: .1, Y: .1}},
+		{Type: "tap", OffsetMillis: 10000, Start: Point{X: .2, Y: .2}},
+	}}
+	if err := value.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "com.example.app", "Replay", "locked")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := json.Marshal(value)
+	if err := os.WriteFile(filepath.Join(directory, "case.json"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases, err := manager.Cases("com.example.app")
+	if err != nil || len(cases) != 1 {
+		t.Fatalf("cases=%#v err=%v", cases, err)
+	}
+	if _, err = manager.StartReplay(context.Background(), ReplayConfig{Execute: true, Case: value}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for manager.ReplayState().Completed < 1 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if err = manager.DeleteCase(cases[0].ID); err == nil || !strings.Contains(err.Error(), "active replay") {
+		t.Fatalf("DeleteCase during replay: %v", err)
+	}
+	if _, err = os.Stat(filepath.Join(directory, "case.json")); err != nil {
+		t.Fatalf("replay case was removed: %v", err)
+	}
+	if _, err = manager.StopReplay(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err = manager.DeleteCase(cases[0].ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCasesIgnoreArtifactsOutsideReplayAndPruneOldest(t *testing.T) {
 	root := t.TempDir()
 	manager := New(root, nil, nil, nil, nil, nil)
@@ -170,6 +249,32 @@ func TestRecordingExcludesOverlayTouches(t *testing.T) {
 	}
 }
 
+func TestSetExcludedBoundsOwnedUpdatesOverlayFilter(t *testing.T) {
+	manager := New(t.TempDir(), fakeCapture{}, fakeForeground{"com.example.app"}, &fakeExecutor{}, nil, nil)
+	started := time.Now().UTC()
+	identity := execution.NewIdentity("recording", "move-overlay", 1)
+	manager.recordGeneration = 1
+	manager.recordIdentity = identity
+	manager.recording = RecordingState{Running: true, Package: "com.example.app", StartedAt: &started, Identity: identity}
+	manager.current = Case{SchemaVersion: SchemaVersion, Package: "com.example.app", Actions: []Action{}}
+	manager.excluded = &Bounds{Left: 0.7, Top: 0, Right: 1, Bottom: 0.3}
+	if err := manager.SetExcludedBoundsOwned(identity.SessionID, identity.OwnerToken, &Bounds{Left: 0, Top: 0.7, Right: 0.4, Bottom: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.SetExcludedBoundsOwned("stale", identity.OwnerToken, &Bounds{Left: 0.1, Top: 0.1, Right: 0.2, Bottom: 0.2}); !errors.Is(err, execution.ErrOwnerMismatch) {
+		t.Fatalf("stale owner error=%v", err)
+	}
+	manager.mu.Lock()
+	manager.appendActionsLocked(
+		Action{Type: "tap", Start: Point{X: 0.85, Y: 0.15}},
+		Action{Type: "tap", Start: Point{X: 0.2, Y: 0.85}},
+	)
+	manager.mu.Unlock()
+	if len(manager.CurrentCase().Actions) != 1 || manager.CurrentCase().Actions[0].Start.X != 0.85 {
+		t.Fatalf("moved overlay filter retained %#v", manager.CurrentCase().Actions)
+	}
+}
+
 type fakeCapture struct{}
 
 func replayBusy(manager *Manager) bool {
@@ -208,6 +313,26 @@ func (c blockingCapture) Capture(context.Context, func(time.Time, touchreader.Ev
 type fakeForeground struct{ packageName string }
 
 func (f fakeForeground) ForegroundPackage(context.Context) (string, error) { return f.packageName, nil }
+
+type sequencedForeground struct {
+	mu       sync.Mutex
+	packages []string
+	index    int
+}
+
+func (f *sequencedForeground) ForegroundPackage(context.Context) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.packages) == 0 {
+		return "", errors.New("empty foreground sequence")
+	}
+	if f.index >= len(f.packages) {
+		return f.packages[len(f.packages)-1], nil
+	}
+	value := f.packages[f.index]
+	f.index++
+	return value, nil
+}
 
 type blockingForeground struct {
 	entered     chan struct{}
@@ -722,6 +847,87 @@ func TestReplayUsesCurrentDisplayAndDeterministicCoordinates(t *testing.T) {
 	}
 	if len(joined) != 2 || joined[1] != "input tap 539 599" {
 		t.Fatalf("commands=%#v", joined)
+	}
+}
+
+func TestPermissionAllowPointFindsForegroundOnlyButton(t *testing.T) {
+	document := `<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][1080,2400]"><node class="android.widget.Button" text="While using the app" resource-id="com.android.permissioncontroller:id/permission_allow_foreground_only_button" bounds="[100,1200][980,1340]"/></node></hierarchy>`
+	point, ok := permissionAllowPoint(document, 1080, 2400)
+	if !ok || point.X < .4 || point.Y < .5 {
+		t.Fatalf("point=%#v found=%t", point, ok)
+	}
+}
+
+func TestPermissionAllowPointIgnoresDontAllow(t *testing.T) {
+	document := `<hierarchy><node class="android.widget.FrameLayout" bounds="[0,0][1080,2400]"><node class="android.widget.Button" text="Don't allow" resource-id="com.android.permissioncontroller:id/permission_deny_button" bounds="[100,1200][500,1340]"/><node class="android.widget.Button" text="Allow" resource-id="com.android.permissioncontroller:id/permission_allow_button" bounds="[520,1200][980,1340]"/></node></hierarchy>`
+	point, ok := permissionAllowPoint(document, 1080, 2400)
+	if !ok || point.X < .6 {
+		t.Fatalf("must pick Allow, not Don't allow: point=%#v found=%t", point, ok)
+	}
+	if matchesPermissionAllow(hierarchyTargetNode{Text: "Don't allow", ResourceID: "permission_deny_button"}) {
+		t.Fatal("deny control must not match allow")
+	}
+}
+
+func startSingleTapReplay(t *testing.T, name string, foreground ForegroundSource) *Manager {
+	t.Helper()
+	manager := New(t.TempDir(), fakeCapture{}, foreground, &fakeExecutor{}, nil, nil)
+	value := Case{SchemaVersion: SchemaVersion, Name: name, Package: "com.example.app", RecordedAt: time.Now().UTC(), Actions: []Action{{Type: "tap", Start: Point{X: .5, Y: .5}}}}
+	if err := value.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartReplay(context.Background(), ReplayConfig{Execute: true, Case: value}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for replayBusy(manager) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	return manager
+}
+
+func TestReplayWaitsForPermissionController(t *testing.T) {
+	manager := startSingleTapReplay(t, "permission", &sequencedForeground{packages: []string{"com.example.app", "com.android.permissioncontroller", "com.example.app"}})
+	if state := manager.ReplayState(); state.StopReason != "completed" || state.Completed != 1 {
+		t.Fatalf("state=%#v", state)
+	}
+}
+
+func TestReplayStillStopsWhenForegroundLeavesTarget(t *testing.T) {
+	manager := startSingleTapReplay(t, "leave", &sequencedForeground{packages: []string{"com.example.app", "com.android.launcher"}})
+	if state := manager.ReplayState(); state.StopReason != "safety_stop" || !strings.Contains(state.Error, "com.android.launcher") {
+		t.Fatalf("state=%#v", state)
+	}
+}
+
+func TestReplayLoopsRepeatsActions(t *testing.T) {
+	executor := &fakeExecutor{}
+	manager := New(t.TempDir(), fakeCapture{}, fakeForeground{"com.example.app"}, executor, nil, nil)
+	value := Case{SchemaVersion: SchemaVersion, Name: "loop", Package: "com.example.app", RecordedAt: time.Now().UTC(), Actions: []Action{{Type: "tap", Start: Point{X: .5, Y: .5}}}}
+	if err := value.Seal(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartReplay(context.Background(), ReplayConfig{Execute: true, Loops: 2, Case: value}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for replayBusy(manager) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	state := manager.ReplayState()
+	if state.StopReason != "completed" || state.Cycle != 2 || state.Loops != 2 {
+		t.Fatalf("state=%#v", state)
+	}
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	taps := 0
+	for _, command := range executor.commands {
+		if len(command) >= 2 && command[0] == "input" && command[1] == "tap" {
+			taps++
+		}
+	}
+	if taps != 2 {
+		t.Fatalf("tap commands=%d commands=%#v", taps, executor.commands)
 	}
 }
 

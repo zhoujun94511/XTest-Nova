@@ -173,7 +173,7 @@ const (
 	PopupPackage     = overlaypermission.Package
 	PopupActivity    = PopupPackage + "/.PopupLauncherActivity"
 	PopupAPK         = "/data/local/tmp/xtest-nova-companion.apk"
-	PopupVersionCode = 30718
+	PopupVersionCode = 30728
 )
 
 func ManagePopup(ctx context.Context, action string, executor platform.Executor, output io.Writer) error {

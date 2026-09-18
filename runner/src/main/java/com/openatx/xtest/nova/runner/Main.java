@@ -524,13 +524,23 @@ public final class Main {
 
         Observation observe(String activity) throws Exception {
             String beforeActivity = activity == null ? "" : activity;
-            String hierarchy = Guard.http("http://127.0.0.1:7912/v1/hierarchy/raw");
+            String hierarchy = dumpHierarchy();
             String afterActivity = Guard.currentActivity(input);
             if (!beforeActivity.equals(afterActivity)) {
                 emit("unstable_snapshot", afterActivity, ",\"beforeActivity\":\"" + Guard.escape(beforeActivity) + "\",\"afterActivity\":\"" + Guard.escape(afterActivity) + "\"");
                 return null;
             }
             return new Observation(afterActivity.isEmpty() ? activity : afterActivity, hierarchy);
+        }
+
+        static String dumpHierarchy() throws Exception {
+            try {
+                return Guard.http("http://127.0.0.1:7912/v1/hierarchy/raw");
+            } catch (IOException first) {
+                if (!String.valueOf(first.getMessage()).contains("Hierarchy HTTP failed")) throw first;
+                Thread.sleep(400);
+                return Guard.http("http://127.0.0.1:7912/v1/hierarchy/raw");
+            }
         }
 
         ActResult act(String activity, boolean paywallContext, String hierarchy) {
@@ -1413,7 +1423,7 @@ public final class Main {
         boolean runTargetCase(String currentActivity,String task,String caseName){try{String body="{\"token\":\""+escape(config.targetToken)+"\",\"activity\":\""+escape(currentActivity)+"\",\"task\":\""+escape(task)+"\",\"case\":\""+escape(caseName)+"\"}";post("http://127.0.0.1:7912/v1/monkey/target-case",body);return true;}catch(Exception error){emit("target_case_failed",currentActivity,",\"error\":\""+escape(String.valueOf(error.getMessage()))+"\"");return false;}}
         void emit(String state,String currentActivity,String extra){System.out.println("{\"state\":\""+state+"\",\"requestId\":\""+escape(config.requestId)+"\",\"package\":\""+config.packageName+"\",\"activity\":\""+escape(currentActivity)+"\""+extra+",\"time\":"+System.currentTimeMillis()+"}");}
         static boolean matches(String expected,String actual){return expected.equals(actual)||(!expected.contains("/")&&actual.endsWith("/"+expected));}
-        static String http(String address)throws IOException{HttpURLConnection connection=(HttpURLConnection)new URL(address).openConnection();connection.setConnectTimeout(1000);connection.setReadTimeout(5000);try{if(connection.getResponseCode()/100!=2)throw new IOException("Hierarchy HTTP failed");StringBuilder value=new StringBuilder();try(Reader reader=new InputStreamReader(connection.getInputStream(),"UTF-8")){char[] buffer=new char[4096];for(int count;(count=reader.read(buffer))>=0;){if(value.length()+count>4*1024*1024)throw new IOException("Hierarchy too large");value.append(buffer,0,count);}}return value.toString();}finally{connection.disconnect();}}
+        static String http(String address)throws IOException{HttpURLConnection connection=(HttpURLConnection)new URL(address).openConnection();connection.setConnectTimeout(2000);connection.setReadTimeout(15000);try{if(connection.getResponseCode()/100!=2)throw new IOException("Hierarchy HTTP failed");StringBuilder value=new StringBuilder();try(Reader reader=new InputStreamReader(connection.getInputStream(),"UTF-8")){char[] buffer=new char[4096];for(int count;(count=reader.read(buffer))>=0;){if(value.length()+count>4*1024*1024)throw new IOException("Hierarchy too large");value.append(buffer,0,count);}}return value.toString();}finally{connection.disconnect();}}
         static String post(String address,String body)throws IOException{HttpURLConnection connection=(HttpURLConnection)new URL(address).openConnection();connection.setConnectTimeout(1000);connection.setReadTimeout(300000);connection.setRequestMethod("POST");connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json");try(OutputStream output=connection.getOutputStream()){output.write(body.getBytes("UTF-8"));}try{int status=connection.getResponseCode();InputStream stream=status<400?connection.getInputStream():connection.getErrorStream();StringBuilder value=new StringBuilder();if(stream!=null)try(Reader reader=new InputStreamReader(stream,"UTF-8")){char[] buffer=new char[1024];for(int count;(count=reader.read(buffer))>=0;)value.append(buffer,0,count);}if(status/100!=2)throw new IOException("Target case HTTP "+status+": "+value);return value.toString();}finally{connection.disconnect();}}
         static String escape(String value){return value.replace("\\","\\\\").replace("\"","\\\"");}
     }

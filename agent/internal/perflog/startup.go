@@ -111,13 +111,9 @@ func (m *Manager) MeasureStartup(ctx context.Context, config StartupConfig) (Sta
 		}
 		defer m.coordinator.Release(identity)
 	}
-	resolved, err := m.commands.Run(ctx, "cmd", "package", "resolve-activity", "--brief", config.Package)
+	activity, err := m.resolveLauncherActivity(ctx, config.Package)
 	if err != nil {
-		return StartupReport{}, fmt.Errorf("resolve launcher activity: %w", err)
-	}
-	activity := resolvedActivity(resolved)
-	if activity == "" {
-		return StartupReport{}, errors.New("launcher activity unavailable")
+		return StartupReport{}, err
 	}
 	report := StartupReport{SchemaVersion: "xtest-nova-startup/v2", Identity: identity, Package: config.Package, Mode: config.Mode, Activity: activity, StartedAt: started, Samples: []StartupSample{}, BaselineP95Millis: config.BaselineP95Millis, MaxRegressionPercent: config.MaxRegressionPercent}
 	if config.Mode == "warm" {
@@ -224,6 +220,66 @@ func (m *Manager) MeasureStartup(ctx context.Context, config StartupConfig) (Sta
 		return report, pruneErr
 	}
 	return report, nil
+}
+
+func (m *Manager) prepareSessionSample(ctx context.Context, collector Collector, packageName string) (novasystem.Performance, error) {
+	if m.commands != nil {
+		if err := m.launchLauncher(ctx, packageName); err != nil {
+			return novasystem.Performance{}, err
+		}
+	}
+	deadline := time.Now().Add(12 * time.Second)
+	var last error
+	for {
+		sample, err := collector.Performance(ctx, packageName)
+		if err == nil {
+			return sample, nil
+		}
+		last = err
+		if ctx.Err() != nil {
+			return novasystem.Performance{}, ctx.Err()
+		}
+		if m.commands == nil || !isMissingProcess(err) || time.Now().After(deadline) {
+			return novasystem.Performance{}, last
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return novasystem.Performance{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (m *Manager) resolveLauncherActivity(ctx context.Context, packageName string) (string, error) {
+	if m.commands == nil {
+		return "", errors.New("app launch command transport unavailable")
+	}
+	resolved, err := m.commands.Run(ctx, "cmd", "package", "resolve-activity", "--brief", packageName)
+	if err != nil {
+		return "", fmt.Errorf("resolve launcher activity: %w", err)
+	}
+	activity := resolvedActivity(resolved)
+	if activity == "" {
+		return "", errors.New("launcher activity unavailable")
+	}
+	return activity, nil
+}
+
+func (m *Manager) launchLauncher(ctx context.Context, packageName string) error {
+	activity, err := m.resolveLauncherActivity(ctx, packageName)
+	if err != nil {
+		return err
+	}
+	if _, err = m.commands.Run(ctx, "am", "start", "-W", "-n", activity); err != nil {
+		return fmt.Errorf("bring target to foreground: %w", err)
+	}
+	return nil
+}
+
+func isMissingProcess(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "package not found")
 }
 
 func (m *Manager) prepareFirstContentFrame(ctx context.Context) (bool, error) {

@@ -38,6 +38,7 @@ func (a *API) registerRecordReplayRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /v1/recordings", a.startRecording)
 	m.HandleFunc("GET /v1/recordings", a.recordingCases)
 	m.HandleFunc("GET /v1/recordings/cases/{id}", a.savedRecordingCase)
+	m.HandleFunc("DELETE /v1/recordings/cases/{id}", a.deleteSavedRecordingCase)
 	m.HandleFunc("GET /v1/recordings/drafts", a.recordingDrafts)
 	m.HandleFunc("POST /v1/recordings/drafts/{id}/finalize", a.finalizeRecordingDraft)
 	m.HandleFunc("DELETE /v1/recordings/drafts/{id}", a.deleteRecordingDraft)
@@ -48,6 +49,7 @@ func (a *API) registerRecordReplayRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /v1/recordings/current/focused-text", a.appendFocusedRecordingText)
 	m.HandleFunc("POST /v1/recordings/current/key", a.appendRecordingKey)
 	m.HandleFunc("POST /v1/recordings/current/assertions/screenshot", a.appendScreenshotAssertion)
+	m.HandleFunc("PUT /v1/recordings/current/excluded-bounds", a.updateRecordingExcludedBounds)
 	m.HandleFunc("POST /v1/replays", a.startReplay)
 	m.HandleFunc("POST /v1/replays/validate", a.validateReplay)
 	m.HandleFunc("GET /v1/replays/current", a.replayState)
@@ -180,6 +182,10 @@ func (a *API) savedRecordingCase(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, value)
 }
 
+func (a *API) deleteSavedRecordingCase(w http.ResponseWriter, r *http.Request) {
+	a.deleteRecordingArtifact(w, r, a.recordReplay.DeleteCase)
+}
+
 func (a *API) recordingDrafts(w http.ResponseWriter, r *http.Request) {
 	if !a.requireRecordReplay(w) {
 		return
@@ -205,19 +211,23 @@ func (a *API) finalizeRecordingDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) deleteRecordingDraft(w http.ResponseWriter, r *http.Request) {
+	a.deleteRecordingArtifact(w, r, a.recordReplay.DeleteDraft)
+}
+
+func (a *API) updateRecordingExcludedBounds(w http.ResponseWriter, r *http.Request) {
 	if !a.requireRecordReplay(w) {
 		return
 	}
-	if !requireControlHeader(w, r) {
+	var request recordreplay.Bounds
+	if !decodeRecordReplayJSON(w, r, &request) {
 		return
 	}
-	a.executionMu.Lock()
-	defer a.executionMu.Unlock()
-	if err := a.recordReplay.DeleteDraft(r.PathValue("id")); err != nil {
-		fail(w, http.StatusBadRequest, err)
+	sessionID, ownerToken := executionCredentials(r)
+	if err := a.recordReplay.SetExcludedBoundsOwned(sessionID, ownerToken, &request); err != nil {
+		fail(w, executionStopErrorStatus(err), err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true})
 }
 
 func (a *API) appendRecordingText(w http.ResponseWriter, r *http.Request) {
@@ -302,6 +312,22 @@ func (a *API) requireRecordReplay(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+func (a *API) deleteRecordingArtifact(w http.ResponseWriter, r *http.Request, remove func(string) error) {
+	if !a.requireRecordReplay(w) {
+		return
+	}
+	if !requireControlHeader(w, r) {
+		return
+	}
+	a.executionMu.Lock()
+	defer a.executionMu.Unlock()
+	if err := remove(r.PathValue("id")); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
 
 func (a *API) startRecording(w http.ResponseWriter, r *http.Request) {

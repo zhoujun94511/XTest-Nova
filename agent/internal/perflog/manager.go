@@ -138,7 +138,7 @@ func (m *Manager) StartConfig(ctx context.Context, config Config) (State, error)
 			}
 		}()
 	}
-	sample, err := collector.Performance(ctx, config.Package)
+	sample, err := m.prepareSessionSample(ctx, collector, config.Package)
 	if err != nil {
 		return m.State(), err
 	}

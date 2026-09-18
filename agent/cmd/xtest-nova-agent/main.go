@@ -127,6 +127,8 @@ func main() {
 		if startErr := automator.Start(); startErr != nil {
 			log.Printf("Nova hierarchy provider unavailable at startup; system fallback remains active: %v", startErr)
 		}
+	} else if prepErr := automator.PrepareHierarchy(context.Background()); prepErr != nil {
+		log.Printf("Nova hierarchy was selected for this Android build but did not start: %v", prepErr)
 	}
 	store, e := configstore.New(cfg.ConfigPath)
 	if e != nil {

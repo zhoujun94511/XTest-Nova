@@ -145,9 +145,9 @@
                 <div id="record-state-output" class="structured-output compact-output"><p class="empty-state">尚未录制。</p></div>
               </div>
               <div class="case-library">
-                <div class="panel-heading"><div><span class="overline">用例库</span><h3>已保存用例</h3></div><button class="text-button" data-action="record-list">刷新</button></div>
+                <div class="panel-heading"><div><span class="overline">用例库</span><h3>已保存用例</h3></div><div class="action-row"><button class="text-button" data-action="record-list">刷新</button><button class="text-button danger-quiet" data-action="record-delete-case">删除选中</button></div></div>
                 <div id="record-list-output" class="case-list"><p class="empty-state">尚未读取用例。</p></div>
-                <div class="replay-bar"><label class="field compact"><span>回放速度</span><select id="replay-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><button data-action="replay-start">回放选中用例</button><button class="danger-quiet" data-action="replay-stop">停止</button><button class="secondary" data-action="replay-state">状态</button></div>
+                <div class="replay-bar"><label class="field compact"><span>回放速度</span><select id="replay-speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label><label class="field compact"><span>循环</span><select id="replay-loops"><option value="1" selected>1 次</option><option value="3">3 次</option><option value="5">5 次</option><option value="10">10 次</option><option value="-1">直到停止</option></select></label><button data-action="replay-start">回放选中用例</button><button class="danger-quiet" data-action="replay-stop">停止</button><button class="secondary" data-action="replay-state">状态</button></div>
               </div>
             </div>
           </article>
@@ -155,7 +155,7 @@
       </section>
 
       <section id="performance" class="view" aria-labelledby="performance-title">
-        <div class="section-intro"><div><span class="overline">性能采集</span><h2 id="performance-title">性能采集</h2><p>持续记录目标应用指标，并区分预热、空闲、不支持和采集失败；停止后直接展示统计摘要与数据质量。</p></div><div class="module-controls"><label class="field module-target"><span>目标应用</span><select id="performance-package" data-package-select><option value="">请选择目标应用</option></select></label><span class="state-pill" id="perf-state-pill">空闲</span></div></div>
+        <div class="section-intro"><div><span class="overline">性能采集</span><h2 id="performance-title">性能采集</h2><p>开始采集时会自动拉起目标应用到前台，再持续记录指标，并区分预热、空闲、不支持和采集失败；停止后直接展示统计摘要与数据质量。</p></div><div class="module-controls"><label class="field module-target"><span>目标应用</span><select id="performance-package" data-package-select><option value="">请选择目标应用</option></select></label><span class="state-pill" id="perf-state-pill">空闲</span></div></div>
         <article class="panel focused-panel">
           <div class="focus-target"><span>采集目标</span><strong id="perf-target">尚未选择应用</strong></div>
           <div class="form-grid two performance-options"><label class="field"><span>采样间隔</span><span class="input-unit"><input id="perf-interval" type="number" min="1" max="60" value="2"><span>秒</span></span></label><label class="field"><span>自动停止</span><span class="input-unit"><input id="perf-duration" type="number" min="0" max="604800" value="0"><span>秒，0 表示手动停止</span></span></label></div>
@@ -167,7 +167,7 @@
 		  <section id="perf-summary" class="performance-summary" aria-live="polite" hidden></section>
         </article>
         <article class="panel">
-          <div><span class="overline">启动性能</span><h2>冷启动与暖启动基线</h2><p>通过 Android ActivityManager 多轮测量启动耗时，并使用 P95 与基线进行确定性判定；基线判定至少需要 5 轮。</p></div>
+          <div><span class="overline">启动性能</span><h2>冷启动与暖启动基线</h2><p>测量流程自行冷启动（force-stop 后再拉起）或暖启动（先预热再回桌面测量），不要提前手动打开应用。通过 Android ActivityManager 多轮测量启动耗时，并使用 P95 与基线进行确定性判定；基线判定至少需要 5 轮。</p></div>
           <div class="form-grid three">
             <label class="field"><span>启动类型</span><select id="startup-mode"><option value="cold">冷启动</option><option value="warm">暖启动</option></select></label>
             <label class="field"><span>测量轮数</span><input id="startup-runs" type="number" min="1" max="20" value="5"></label>

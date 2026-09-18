@@ -1,8 +1,8 @@
 <div align="center">
 
-# XTest Nova
+![XTest Nova logo](pic/logo-96.png)
 
-<img src="agent/internal/httpapi/web/assets/media/favicon.svg" width="96" alt="XTest Nova logo" />
+# XTest Nova
 
 **运行在手机上的智能自动化测试工具**
 
@@ -11,9 +11,9 @@
 [![scrcpy](https://img.shields.io/badge/scrcpy-4.1-00C853.svg)](https://github.com/Genymobile/scrcpy)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-[中文](README.md) • [English](README_en.md)
+[中文](README.md) · [English](README_en.md)
 
-[功能特性](#功能特性) • [系统架构](#系统架构) • [快速开始](#快速开始) • [文档](#文档)
+[功能特性](#功能特性) · [系统架构](#系统架构) · [快速开始](#快速开始) · [界面预览](#界面预览) · [文档](#文档)
 
 </div>
 
@@ -22,6 +22,48 @@
 XTest Nova 把探索、Monkey、录制回放、性能采集和远程控制放在手机上的一个 Agent 里。推送到设备后，用浏览器或 API 操作即可；截图、日志和性能数据按目标应用保存在设备上。
 
 一台设备对应一个 Agent。默认通过本机 ADB 转发访问，局域网直连需按文档开启认证。
+
+## 界面预览
+
+真机上的设备端悬浮窗与 Web 控制台。
+
+<div align="center">
+
+**设备端**
+
+<img src="pic/设备-悬浮窗界面.jpg" alt="设备端悬浮窗" width="360" /> <img src="pic/设备-智能遍历界面.jpg" alt="智能遍历配置" width="360" />
+
+**Web 控制台**
+
+运行概览
+
+![运行概览](pic/控制台-运行概览.png)
+
+应用管理
+
+![应用管理](pic/控制台-应用管理.png)
+
+自动化测试
+
+![自动化测试](pic/控制台-自动化测试.png)
+
+设备远控
+
+![设备远控](pic/控制台-设备远控.png)
+
+性能采集
+
+![性能采集](pic/控制台-性能采集.png)
+
+测试产物
+
+![测试产物](pic/控制台-测试产物.png)
+
+运行诊断
+
+![运行诊断](pic/控制台-运行诊断.png)
+
+</div>
 
 ## 功能特性
 
@@ -175,6 +217,10 @@ LAN 模式只放开 7912，并要求 Bearer 或浏览器登录；8912 和 7890 �
 - [兼容矩阵](docs/compliance/compatibility.md)
 
 设计决策、实施计划和历史验证记录按主题放在 `docs/` 中，不在本页逐条展开。需要查阅某一期真机结果或整改记录时，从 [文档总索引](docs/README.md) 进入对应分类即可。
+
+## 致谢
+
+感谢 [XTest](https://github.com/y-grey/XTest) 提供的参考与启发。
 
 ## 版本与许可证
 

@@ -15,7 +15,7 @@ func (e *startupPopupExecutor) Run(_ context.Context, name string, args ...strin
 	case name == "pm" && len(args) > 0 && args[0] == "path":
 		return "package:/data/app/popup.apk", nil
 	case name == "dumpsys" && len(args) > 0 && args[0] == "package":
-		return "versionCode=30718", nil
+		return "versionCode=30728", nil
 	case name == "dumpsys" && len(args) > 1 && args[0] == "activity" && args[1] == "services":
 		return "com.openatx.xtest.popup.OverlayService", nil
 	case name == "getprop":
