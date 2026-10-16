@@ -181,7 +181,7 @@ adb shell /data/local/tmp/xtest-nova-agent monkey stop
 adb shell /data/local/tmp/xtest-nova-agent version
 ```
 
-`server -d` 会补齐组件并显示悬浮窗。`monkey stop` 只结束当前任务，不会关闭 Agent，也不会删除已生成的产物。
+`server -d` 会补齐组件并显示悬浮窗。若系统未授予「显示在其他应用上层」，会打开授权列表，选择 XTest Nova 并打开开关后自动拉起，不必重新部署。各系统族差异见 [悬浮窗权限](docs/reference/overlay-permission.md)。`monkey stop` 只结束当前任务，不会关闭 Agent，也不会删除已生成的产物。
 
 ### 访问方式
 

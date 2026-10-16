@@ -22,6 +22,9 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 `server -d --stop` 明确定义为停止，不隐式重启。需要重启时先执行停止命令，再执行
 `server -d`，避免升级脚本出现双进程竞态。只推送二进制文件不会安装或启动任何 APK；执行
 Server 后才会进行 bootstrap。正常启动默认显示悬浮窗，只有显式 `--no-popup` 才跳过显示。
+悬浮窗依赖系统「显示在其他应用上层」权限；部分厂商不允许 shell 静默授权，启动后会打开
+系统列表，选择 XTest Nova 并打开开关即可，不必重新部署。系统族差异见
+[悬浮窗权限](overlay-permission.md)。
 
 ## 3. 部署
 

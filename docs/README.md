@@ -43,6 +43,7 @@
 
 - [总体架构](reference/architecture.md)
 - [使用说明](reference/usage.md)
+- [悬浮窗权限](reference/overlay-permission.md)
 - [LAN 认证、令牌轮换与恢复默认](reference/usage.md#32-生成-lan-令牌文件)
 - [危险兼容 API 安全说明](guides/legacy-unsafe-api.md)
 - [发布与回滚](reference/release.md)

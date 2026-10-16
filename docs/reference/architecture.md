@@ -44,7 +44,7 @@ Nova UiAutomator（独立 Instrumentation 生命周期）
   |-- 首期只读取 Accessibility 控件树，不接管输入
 
 Nova Companion (Android application UID)
-  |-- 悬浮窗权限与界面
+  |-- 悬浮窗权限与界面（先静默 AppOps，失败则打开系统授权页）
   |-- 权限缺失时安全停止，不保留失效前台服务
   |-- 目标包、时长、节流配置
   |-- HTTP 8912 -> Nova Agent

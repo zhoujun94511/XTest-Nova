@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.27.0-overlay-grant — 2026-10-16
+
+- Hardened first-run overlay startup: silent AppOps when the vendor allows it, otherwise the system overlay list; HTTP listen no longer waits on the grant page.
+- Companion names XTest Nova on the grant prompt, copies the label for search, and starts the overlay after the user returns.
+- Documented verified OS families without device identifiers. ColorOS still requires a manual overlay switch; Pixel, One UI, MagicOS, OriginOS, Motorola, and HyperOS granted AppOps from shell in this round.
+
 ## Unreleased
 
 - Separated rendering-scene detection from coordinate-input authorization. Render-only pages now use explicit `off`, `bounded`, or `continuous` policies; the default is bounded and Unity detection no longer grants unlimited input by itself.

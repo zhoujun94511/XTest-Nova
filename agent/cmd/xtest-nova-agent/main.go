@@ -109,12 +109,6 @@ func main() {
 		releasePID()
 		log.Fatalf("complete runtime bootstrap failed: %v", bootstrapErr)
 	}
-	popupContext, cancelPopup := context.WithTimeout(context.Background(), 10*time.Second)
-	popupStartAttempted, startupPopupErr := startPopupAtServerBoot(popupContext, cfg.NoPopup, executor, os.Stdout)
-	cancelPopup()
-	if startupPopupErr != nil {
-		log.Printf("Companion overlay did not start automatically: %v", startupPopupErr)
-	}
 	d := device.New(executor, cfg.CommandTimeout)
 	packageMetadata := pkgmeta.New(executor, cfg.CommandTimeout)
 	applications := apps.New(executor, cfg.CommandTimeout, packageMetadata)
@@ -206,12 +200,10 @@ func main() {
 		companionStatus = componenthealth.Degraded("companion", true, buildinfo.Version, companionDetail)
 	}
 	api.SetAuxiliaryStatus(companionStatus)
-	if !popupStartAttempted {
+	if cfg.NoPopup {
 		api.SetAuxiliaryStatus(componenthealth.New("popupOverlayStartup", true, false, false, buildinfo.Version, "disabled by --no-popup"))
-	} else if startupPopupErr != nil {
-		api.SetAuxiliaryStatus(componenthealth.Degraded("popupOverlayStartup", true, buildinfo.Version, startupPopupErr.Error()))
 	} else {
-		api.SetAuxiliaryStatus(componenthealth.New("popupOverlayStartup", true, true, true, buildinfo.Version, "started automatically with server"))
+		api.SetAuxiliaryStatus(componenthealth.Degraded("popupOverlayStartup", true, buildinfo.Version, "waiting for overlay permission"))
 	}
 	api.SetAuxiliaryStatus(componenthealth.New("runtimeBootstrap", true, bootstrapState.Ready, false, buildinfo.Version, bootstrapState.Error))
 	for _, component := range bootstrapState.Components {
@@ -236,6 +228,19 @@ func main() {
 				serverErrors <- fmt.Errorf("server %s failed: %w", listener.Addr(), err)
 			}
 		}(s)
+	}
+	if !cfg.NoPopup {
+		go func() {
+			popupContext, cancelPopup := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancelPopup()
+			_, startupPopupErr := startPopupAtServerBoot(popupContext, false, executor, os.Stdout)
+			if startupPopupErr != nil {
+				log.Printf("Companion overlay did not start automatically: %v", startupPopupErr)
+				api.SetAuxiliaryStatus(componenthealth.Degraded("popupOverlayStartup", true, buildinfo.Version, startupPopupErr.Error()))
+				return
+			}
+			api.SetAuxiliaryStatus(componenthealth.New("popupOverlayStartup", true, true, true, buildinfo.Version, "started automatically with server"))
+		}()
 	}
 	if os.Getenv("XTEST_NOVA_DAEMON_LOG") == "" {
 		if err := writeWebAccessInstructions(os.Stdout, cfg); err != nil {

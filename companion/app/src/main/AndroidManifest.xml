@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.openatx.xtest.popup" android:versionCode="30728" android:versionName="3.7.28-monkey-minimize">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.openatx.xtest.popup" android:versionCode="30730" android:versionName="3.7.30-overlay-guide">
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN"/>
@@ -19,7 +19,7 @@
             android:grantUriPermissions="false"
             android:readPermission="android.permission.DUMP"
             android:writePermission="android.permission.DUMP" />
-        <activity android:name="com.openatx.xtest.popup.PopupLauncherActivity" android:exported="true" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.NoDisplay"/>
+        <activity android:name="com.openatx.xtest.popup.PopupLauncherActivity" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.NoActionBar"/>
         <service android:name="com.openatx.xtest.popup.OverlayService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Persistent user-visible test automation overlay controls"/>
         </service>

@@ -179,7 +179,7 @@ adb shell /data/local/tmp/xtest-nova-agent monkey stop
 adb shell /data/local/tmp/xtest-nova-agent version
 ```
 
-`server -d` installs missing components and shows the overlay. `monkey stop` ends the current job only. It does not shut down the Agent or delete artifacts.
+`server -d` installs missing components and shows the overlay. If “Display over other apps” is not granted, the system list opens; choose XTest Nova, enable the switch, and the overlay starts without another deploy. OS-family differences are in [overlay permission](docs/reference/overlay-permission.md). `monkey stop` ends the current job only. It does not shut down the Agent or delete artifacts.
 
 ### Access
 

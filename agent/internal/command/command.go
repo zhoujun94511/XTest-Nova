@@ -173,7 +173,7 @@ const (
 	PopupPackage     = overlaypermission.Package
 	PopupActivity    = PopupPackage + "/.PopupLauncherActivity"
 	PopupAPK         = "/data/local/tmp/xtest-nova-companion.apk"
-	PopupVersionCode = 30728
+	PopupVersionCode = 30730
 )
 
 func ManagePopup(ctx context.Context, action string, executor platform.Executor, output io.Writer) error {
@@ -197,28 +197,40 @@ func ManagePopup(ctx context.Context, action string, executor platform.Executor,
 		if err := overlaypermission.Grant(ctx, executor); err != nil {
 			return fmt.Errorf("grant popup overlay permission: %w", err)
 		}
-		startArgs := []string{"start", "-n", PopupActivity}
-		if target, targetErr := device.New(executor, 2*time.Second).ForegroundPackage(ctx); targetErr == nil && target != "" && target != PopupPackage {
-			startArgs = append(startArgs, "--es", "target_package", target)
+		if err := startPopupLauncher(ctx, executor); err != nil {
+			return err
 		}
-		value, err := executor.Run(ctx, "am", startArgs...)
-		if err != nil {
-			return fmt.Errorf("start popup: %s: %w", value, err)
-		}
-		deadline := time.Now().Add(3 * time.Second)
+		started := time.Now()
+		var lastStart time.Time
+		agentOpenedSettings := false
+		deadline := time.Now().Add(2 * time.Minute)
 		for {
 			_, _, _, running = popupStatus(ctx, executor)
 			if running {
-				_, err = fmt.Fprintln(output, "popup overlay started")
+				_, err := fmt.Fprintln(output, "popup overlay started")
 				return err
 			}
+			allowed := overlaypermission.Allowed(ctx, executor)
+			if allowed && time.Since(lastStart) >= 2*time.Second {
+				_ = overlaypermission.StartOverlayService(ctx, executor)
+				if err := startPopupLauncher(ctx, executor); err != nil {
+					return err
+				}
+				lastStart = time.Now()
+			}
+			if !allowed && !agentOpenedSettings && time.Since(started) >= 8*time.Second {
+				if settingsErr := overlaypermission.OpenSettings(ctx, executor); settingsErr != nil {
+					fmt.Fprintf(output, "overlay settings page unavailable: %v\n", settingsErr)
+				}
+				agentOpenedSettings = true
+			}
 			if time.Now().After(deadline) {
-				return fmt.Errorf("popup launcher completed but overlay service is not running")
+				return fmt.Errorf("overlay permission is not granted; allow 显示在其他应用上层 for %s", PopupPackage)
 			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(250 * time.Millisecond):
 			}
 		}
 	case "uninstall":
@@ -235,6 +247,18 @@ func ManagePopup(ctx context.Context, action string, executor platform.Executor,
 	default:
 		return fmt.Errorf("unsupported popup action %q", action)
 	}
+}
+
+func startPopupLauncher(ctx context.Context, executor platform.Executor) error {
+	startArgs := []string{"start", "-n", PopupActivity}
+	if target, targetErr := device.New(executor, 2*time.Second).ForegroundPackage(ctx); targetErr == nil && target != "" && target != PopupPackage {
+		startArgs = append(startArgs, "--es", "target_package", target)
+	}
+	value, err := executor.Run(ctx, "am", startArgs...)
+	if err != nil {
+		return fmt.Errorf("start popup: %s: %w", value, err)
+	}
+	return nil
 }
 
 var versionCodePattern = regexp.MustCompile(`versionCode=(\d+)`)

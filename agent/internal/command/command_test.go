@@ -96,8 +96,17 @@ func (f *fakeExecutor) Run(_ context.Context, name string, args ...string) (stri
 		return "Success", nil
 	}
 	if name == "am" && len(args) > 0 && args[0] == "start" {
-		f.running = true
-		return "Starting", nil
+		joined := strings.Join(append([]string{name}, args...), " ")
+		if strings.Contains(joined, PopupActivity) {
+			f.running = true
+		}
+		return "Starting: Intent", nil
+	}
+	if name == "appops" && len(args) > 0 && args[0] == "get" {
+		if f.running {
+			return "SYSTEM_ALERT_WINDOW: allow", nil
+		}
+		return "SYSTEM_ALERT_WINDOW: default", nil
 	}
 	if name == "dumpsys" && len(args) > 0 && args[0] == "package" {
 		return "versionCode=30728 minSdk=28", nil
@@ -117,7 +126,7 @@ func TestPopupStatusReportsRunningState(t *testing.T) {
 	if err := ManagePopup(context.Background(), "status", executor, &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "installed=true running=true versionCode=30728") {
+	if !strings.Contains(output.String(), "installed=true running=true versionCode=30728 expectedVersionCode=30730") {
 		t.Fatalf("unexpected status: %s", output.String())
 	}
 }

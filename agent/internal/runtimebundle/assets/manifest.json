@@ -16,10 +16,10 @@
                            "kind":  "apk",
                            "package":  "com.openatx.xtest.popup",
                            "target":  "/data/local/tmp/xtest-nova-companion.apk",
-                           "size":  61847,
-                           "sha256":  "E77D49EBBB7459BD42B580080C6DA7CE2428C7A4C47DFFCECB277D6EF64FCD21",
-                           "versionCode":  30728,
-                           "versionName":  "3.7.28-monkey-minimize",
+                           "size":  61848,
+                           "sha256":  "6D771260AE49AFF89B8C31ED8D4728015D11EA0AA12D85E0216C3AEAC8798158",
+                           "versionCode":  30730,
+                           "versionName":  "3.7.30-overlay-guide",
                            "certificateSha256":  "E49A7C6FB2EE0DBC4E6D3B6790D9DCF981D80F6B76628EB84755E7E1DA3A46DA"
                        },
                        {
