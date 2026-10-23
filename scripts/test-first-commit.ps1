@@ -2,9 +2,10 @@ param([string]$ExpectedRemote='')
 $ErrorActionPreference='Stop'
 $repoRoot=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $gitRepoRoot=$repoRoot.Replace('\','/')
+. (Join-Path $PSScriptRoot 'release-reproducibility.ps1')
 Push-Location $repoRoot
 try{
-    $files=@(git -c "safe.directory=$gitRepoRoot" ls-files --cached --others --exclude-standard)
+    $files=@(git -c "safe.directory=$gitRepoRoot" ls-files --cached --others --exclude-standard|ForEach-Object{ConvertFrom-GitQuotedPath ([string]$_)}|Where-Object{-not[string]::IsNullOrWhiteSpace($_)})
     if(-not$files){throw 'No first-commit candidates found'}
     foreach($required in @('LICENSE','NOTICE.md','CHANGELOG.md','README.md','docs/compliance/compatibility.md','docs/compliance/compatibility-waivers.md')){if($required-notin$files){throw "Missing required candidate: $required"}}
     $runtimeAssets=@('agent/internal/runtimebundle/assets/xtest-nova-runner.jar','agent/internal/runtimebundle/assets/xtest-nova-companion.apk','agent/internal/runtimebundle/assets/xtest-nova-uiautomator-host.apk','agent/internal/runtimebundle/assets/xtest-nova-uiautomator-test.apk')

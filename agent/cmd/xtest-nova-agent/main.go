@@ -44,6 +44,13 @@ import (
 	"github.com/zhoujun94511/xtest-nova/agent/internal/touchreader"
 )
 
+func commandTimeout(invocation command.Invocation) time.Duration {
+	if invocation.Kind == command.Pull || invocation.Kind == command.ScreenshotCmd {
+		return 3 * time.Minute
+	}
+	return 30 * time.Second
+}
+
 func main() {
 	closeDaemonLog, daemonLogErr := configureDaemonLog()
 	if daemonLogErr != nil {
@@ -66,9 +73,22 @@ func main() {
 		}
 		return
 	case command.Monkey:
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout(invocation))
 		defer cancel()
-		if e = command.ManageMonkey(ctx, invocation.MonkeyAction, command.DefaultAgentURL, nil, os.Stdout); e != nil {
+		if (invocation.MonkeyAction == "status" || invocation.MonkeyAction == "stop") && !invocation.JSON {
+			if e = command.ManageMonkey(ctx, invocation.MonkeyAction, command.DefaultAgentURL, nil, os.Stdout); e != nil {
+				log.Fatal(e)
+			}
+			return
+		}
+		if e = command.Run(ctx, invocation, command.DefaultAgentURL, nil, os.Stdout); e != nil {
+			log.Fatal(e)
+		}
+		return
+	case command.Doctor, command.DeviceInfo, command.Foreground, command.Apps, command.ScreenshotCmd, command.Explore, command.Record, command.Replay, command.Perf, command.Artifacts, command.Pull:
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout(invocation))
+		defer cancel()
+		if e = command.Run(ctx, invocation, command.DefaultAgentURL, nil, os.Stdout); e != nil {
 			log.Fatal(e)
 		}
 		return

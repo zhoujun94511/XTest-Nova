@@ -19,7 +19,7 @@
             android:grantUriPermissions="false"
             android:readPermission="android.permission.DUMP"
             android:writePermission="android.permission.DUMP" />
-        <activity android:name="com.openatx.xtest.popup.PopupLauncherActivity" android:exported="true" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.NoActionBar"/>
+        <activity android:name="com.openatx.xtest.popup.PopupLauncherActivity" android:exported="true" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.NoDisplay"/>
         <service android:name="com.openatx.xtest.popup.OverlayService" android:exported="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Persistent user-visible test automation overlay controls"/>
         </service>

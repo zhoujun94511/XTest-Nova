@@ -11,13 +11,13 @@
       "name": "agent-arm64",
       "path": "dist/xtest-nova-agent-arm64",
       "baselineBytes": 13152456,
-      "maximumDeltaBytes": 262144
+      "maximumDeltaBytes": 294912
     },
     {
       "name": "agent-armv7",
       "path": "dist/xtest-nova-agent-armv7",
       "baselineBytes": 13409375,
-      "maximumDeltaBytes": 262144
+      "maximumDeltaBytes": 360448
     },
     {
       "name": "companion",

@@ -18,6 +18,21 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 | 查看悬浮窗 | `xtest-nova-agent popup status`     | 输出包名、安装状态、悬浮服务运行状态、暂存路径和安装路径                                           |
 | 卸载悬浮窗 | `xtest-nova-agent popup uninstall`  | 卸载 `com.openatx.xtest.popup`；未安装时幂等成功                                  |
 | 查看版本  | `xtest-nova-agent version`          | 输出与 `GET /version`、发布清单相同的版本                                           |
+| 健康检查 | `xtest-nova-agent doctor` | 查询本机 `127.0.0.1:7912` 的 `/v1/health` |
+| 设备信息 | `xtest-nova-agent device` | 输出品牌、型号和 SDK |
+| 前台应用 | `xtest-nova-agent foreground` | 输出当前前台包名 |
+| 应用 | `xtest-nova-agent apps list`、`info <包名>`、`launch <包名>` | 列出、查看或启动应用 |
+| 截图 | `xtest-nova-agent screenshot <文件>` | 把当前屏幕 PNG 写到 `/data/local/tmp`、`/sdcard` 或 `/storage/emulated/0` |
+| 启动 Monkey | `xtest-nova-agent monkey start --package <包名> --duration <秒>` | 按现有 Monkey 接口启动，间隔使用 500 毫秒 |
+| Monkey 结论 | `xtest-nova-agent monkey report` | 输出本次运行的通过 / 失败 / 未测结论 |
+| 探索 | `xtest-nova-agent explore preview`、`start`、`status`、`stop` | `start` 必须带 `--package`；只有再带 `--execute` 才会点击。不带 `--execute` 时，`--json` 会带 `previewOnly: true` |
+| 录制 | `xtest-nova-agent record start`、`status`、`stop`、`cases` | `start` 需要 `--package` 和 `--name` |
+| 回放 | `xtest-nova-agent replay start`、`status`、`stop` | `start` 需要 `--package`、`--name` 和 `--execute` |
+| 性能 | `xtest-nova-agent perf start`、`status`、`stop` | `start` 需要 `--package` |
+| 产物 | `xtest-nova-agent artifacts [--package <包名>]` | 列出 `/sdcard/xtest-nova` 下的会话 |
+| 归档 | `xtest-nova-agent pull <目录> <文件>` | 把允许路径下的目录打成 zip 再写到允许路径 |
+
+这些命令都在设备上执行，并访问本机 `127.0.0.1:7912`。电脑上的调用方式是 `adb shell /data/local/tmp/xtest-nova-agent <子命令>`。停止 Monkey、探索、录制、回放和性能时会先读取当前会话身份，再带上会话头；输出里不包含 owner token。加上 `--json` 时输出去掉令牌后的接口 JSON。命令不提供远控画面，也不调用 `/shell` 或会关闭 Agent 的 `/stop`。
 
 `server -d --stop` 明确定义为停止，不隐式重启。需要重启时先执行停止命令，再执行
 `server -d`，避免升级脚本出现双进程竞态。只推送二进制文件不会安装或启动任何 APK；执行

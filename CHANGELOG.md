@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.28.0 — 2026-10-23
+
+- Added on-device CLI commands for doctor, device, foreground, apps, screenshot, monkey, exploration, recording, replay, performance, artifacts, and pull. They call the on-device Agent over loopback. Stop commands send the session headers and omit owner tokens from text and JSON. Exploration without `--execute` stays preview-only, and `--json` includes `previewOnly: true`.
+- Aligned `PopupLauncherActivity` with its source contract: `android:noHistory="true"` and `Theme.NoDisplay`.
+- Raised the Agent size allowance to cover the device CLI.
+- Decode Git's quoted non-ASCII paths in the first-commit gate so Windows can open the `pic/` screenshots.
+- Corrected the UiAutomator dependency verification checksum for `guava-parent-33.3.1-jre.pom`.
+
 ## 0.27.0-overlay-grant — 2026-10-16
 
 - Hardened first-run overlay startup: silent AppOps when the vendor allows it, otherwise the system overlay list; HTTP listen no longer waits on the grant page.

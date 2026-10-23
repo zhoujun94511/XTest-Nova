@@ -8,6 +8,13 @@ foreach($script in Get-ChildItem -LiteralPath $repoRoot -Filter '*.ps1' -File -R
     if($diagnostics.Count){throw "PowerShell parse failed: $($script.FullName) - $($diagnostics[0].Message)"}
 }
 
+$pictureName=[Text.Encoding]::UTF8.GetString([byte[]](0xE6,0x8E,0xA7,0xE5,0x88,0xB6,0xE5,0x8F,0xB0,0x2D,0xE5,0xBA,0x94,0xE7,0x94,0xA8,0xE7,0xAE,0xA1,0xE7,0x90,0x86))
+$decodedPicture=ConvertFrom-GitQuotedPath '"pic/\346\216\247\345\210\266\345\217\260-\345\272\224\347\224\250\347\256\241\347\220\206.png"'
+if($decodedPicture-ne"pic/$pictureName.png"){throw 'Git quoted non-ASCII path was not decoded'}
+if((ConvertFrom-GitQuotedPath 'README.md')-ne'README.md'){throw 'Plain Git path was modified'}
+if((ConvertFrom-GitQuotedPath '"docs/my file.md"')-ne'docs/my file.md'){throw 'Git quoted ASCII path was not decoded'}
+if(-not(Test-Path -LiteralPath (Join-Path $repoRoot $decodedPicture))){throw 'Decoded console screenshot path does not exist'}
+
 $previousEpoch=$env:SOURCE_DATE_EPOCH
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ("xtest-release-text-"+[Guid]::NewGuid().ToString('N')+'.txt')
 try{

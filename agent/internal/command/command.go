@@ -23,18 +23,66 @@ const (
 	Popup
 	Monkey
 	Version
+	Doctor
+	DeviceInfo
+	Foreground
+	Apps
+	ScreenshotCmd
+	Explore
+	Record
+	Replay
+	Perf
+	Artifacts
+	Pull
 )
 
 type Invocation struct {
-	Kind         Kind
-	Daemon       bool
-	Stop         bool
-	PopupAction  string
-	MonkeyAction string
-	ServerArgs   []string
+	Kind            Kind
+	Daemon          bool
+	Stop            bool
+	JSON            bool
+	PopupAction     string
+	MonkeyAction    string
+	Action          string
+	PackageName     string
+	DurationSeconds int
+	Name            string
+	Task            string
+	Execute         bool
+	TargetPath      string
+	DestPath        string
+	ServerArgs      []string
 }
 
 func Parse(args []string) (Invocation, error) {
+	jsonOutput, args := extractJSONFlag(args)
+	if len(args) == 0 && jsonOutput {
+		return Invocation{}, fmt.Errorf("unknown command")
+	}
+	invocation, err := parseArgs(args)
+	if err != nil {
+		return Invocation{}, err
+	}
+	if jsonOutput {
+		invocation.JSON = true
+	}
+	return invocation, nil
+}
+
+func extractJSONFlag(args []string) (bool, []string) {
+	enabled := false
+	rest := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--json" {
+			enabled = true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	return enabled, rest
+}
+
+func parseArgs(args []string) (Invocation, error) {
 	if len(args) == 0 {
 		return Invocation{Kind: Server}, nil
 	}
@@ -54,14 +102,7 @@ func Parse(args []string) (Invocation, error) {
 		}
 		return Invocation{Kind: Popup, PopupAction: action}, nil
 	case "monkey":
-		if len(args) != 2 {
-			return Invocation{}, fmt.Errorf("usage: xtest-nova-agent monkey stop|status")
-		}
-		action := strings.ToLower(args[1])
-		if action != "stop" && action != "status" {
-			return Invocation{}, fmt.Errorf("unsupported monkey action %q", args[1])
-		}
-		return Invocation{Kind: Monkey, MonkeyAction: action}, nil
+		return parseMonkey(args)
 	case "server":
 		result := Invocation{Kind: Server}
 		for _, arg := range args[1:] {
@@ -79,7 +120,7 @@ func Parse(args []string) (Invocation, error) {
 		if strings.HasPrefix(args[0], "-") {
 			return Invocation{Kind: Server, ServerArgs: args}, nil
 		}
-		return Invocation{}, fmt.Errorf("unknown command %q", args[0])
+		return parseExtended(args)
 	}
 }
 
