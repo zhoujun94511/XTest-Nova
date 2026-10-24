@@ -134,6 +134,9 @@ func findExplicitAdDismissAction(nodes []specialNode, foreground, phase string) 
 		if node.Clickable == "true" {
 			score += 20
 		}
+		if strings.Contains(label, "interstitial close") {
+			score += 400
+		}
 		if score > bestScore || score == bestScore && area < bestArea {
 			best, bestArea, bestScore = node, area, score
 		}

@@ -1,12 +1,14 @@
 package runner
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -173,18 +175,19 @@ func scopedLogcatSnapshot(ctx context.Context, packageName, since string) (strin
 }
 
 type diagnosticIncident struct {
-	Kind          string   `json:"kind"`
-	Time          string   `json:"time,omitempty"`
-	PID           int      `json:"pid,omitempty"`
-	Summary       string   `json:"summary"`
-	Fingerprint   string   `json:"fingerprint"`
-	Occurrences   int      `json:"occurrences"`
-	FirstSeenAt   string   `json:"firstSeenAt,omitempty"`
-	LastSeenAt    string   `json:"lastSeenAt,omitempty"`
-	RepeatSummary string   `json:"repeatSummary,omitempty"`
-	Sources       []string `json:"sources,omitempty"`
-	source        string
-	parsedTime    time.Time
+	Kind             string            `json:"kind"`
+	Time             string            `json:"time,omitempty"`
+	PID              int               `json:"pid,omitempty"`
+	Summary          string            `json:"summary"`
+	Fingerprint      string            `json:"fingerprint"`
+	Occurrences      int               `json:"occurrences"`
+	FirstSeenAt      string            `json:"firstSeenAt,omitempty"`
+	LastSeenAt       string            `json:"lastSeenAt,omitempty"`
+	RepeatSummary    string            `json:"repeatSummary,omitempty"`
+	Sources          []string          `json:"sources,omitempty"`
+	PrecedingActions []precedingAction `json:"precedingActions,omitempty"`
+	source           string
+	parsedTime       time.Time
 }
 
 type diagnosticReport struct {
@@ -839,6 +842,100 @@ func writeDiagnosticReport(path, schemaVersion, packageName string, available, c
 		return err
 	}
 	return writeAtomic(path, append(content, '\n'), 0o644)
+}
+
+const precedingActionLimit = 8
+
+type precedingAction struct {
+	Time     string `json:"time,omitempty"`
+	Activity string `json:"activity,omitempty"`
+	Action   string `json:"action"`
+}
+
+type timedAction struct {
+	at time.Time
+	precedingAction
+}
+
+func attachPrecedingActions(incidents []diagnosticIncident, eventPath string) {
+	actions, err := readActionTrail(eventPath)
+	if err != nil || len(actions) == 0 {
+		return
+	}
+	for index := range incidents {
+		incidents[index].PrecedingActions = actionsBefore(actions, incidents[index].parsedTime, precedingActionLimit)
+	}
+}
+
+func readActionTrail(path string) ([]timedAction, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	var actions []timedAction
+	for scanner.Scan() {
+		var event eventRecord
+		if json.Unmarshal(scanner.Bytes(), &event) != nil {
+			continue
+		}
+		label := actionTrailLabel(event)
+		if label == "" {
+			continue
+		}
+		item := timedAction{precedingAction: precedingAction{Activity: event.Activity, Action: label}}
+		if event.Time > 0 {
+			item.at = time.UnixMilli(event.Time).UTC()
+			item.Time = item.at.Format(time.RFC3339Nano)
+		}
+		actions = append(actions, item)
+	}
+	return actions, scanner.Err()
+}
+
+func actionTrailLabel(event eventRecord) string {
+	switch event.State {
+	case "node_tap":
+		return "tap|" + event.Node
+	case "node_long_click":
+		return "long|" + event.Node
+	case "node_scroll":
+		return "scroll|" + event.Node
+	case "node_input":
+		return "input|" + event.Node
+	case "dfs_backtrack":
+		return "back"
+	case "fallback_action":
+		if event.Action != "" {
+			return event.Action
+		}
+		return "fallback|" + event.Node
+	default:
+		return ""
+	}
+}
+
+func actionsBefore(actions []timedAction, incident time.Time, limit int) []precedingAction {
+	if limit < 1 || len(actions) == 0 {
+		return nil
+	}
+	selected := make([]timedAction, 0, len(actions))
+	for _, action := range actions {
+		if !incident.IsZero() && !action.at.IsZero() && action.at.After(incident) {
+			continue
+		}
+		selected = append(selected, action)
+	}
+	if len(selected) > limit {
+		selected = selected[len(selected)-limit:]
+	}
+	result := make([]precedingAction, 0, len(selected))
+	for _, action := range selected {
+		result = append(result, action.precedingAction)
+	}
+	return result
 }
 
 func writeExitInfoReport(path, packageName string, result diagnosticResult) error {

@@ -56,3 +56,18 @@ func TestSemanticStateIgnoresCoordinatesAndDynamicDigits(t *testing.T) {
 		t.Fatal("semantic state changed with coordinates or digits")
 	}
 }
+
+func TestStallEscalationCoolsTheSameScreen(t *testing.T) {
+	if !armStallEscalation("screen", 10, 0, "") {
+		t.Fatal("first stall was not armed")
+	}
+	if armStallEscalation("screen", 20, 70, "screen") {
+		t.Fatal("cooled screen was armed again")
+	}
+	if !armStallEscalation("screen", 70, 70, "screen") {
+		t.Fatal("screen stayed cooled after the window")
+	}
+	if !armStallEscalation("other", 20, 70, "screen") {
+		t.Fatal("a different screen stayed cooled")
+	}
+}

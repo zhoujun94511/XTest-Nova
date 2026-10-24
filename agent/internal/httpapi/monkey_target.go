@@ -141,7 +141,12 @@ func (a *API) runMonkeyTargetCase(w http.ResponseWriter, r *http.Request) {
 	}
 	value, ok := plan.cases[key]
 	runnerState := a.runner.State()
-	if !ok || !runnerState.Running || runnerState.RequestID != plan.requestID {
+	active := runnerState.Running && runnerState.RequestID == plan.requestID
+	if !active && a.explorer != nil {
+		explored := a.explorer.State()
+		active = (explored.Running || explored.Stopping || explored.Finalizing) && explored.RequestID == plan.requestID
+	}
+	if !ok || !active {
 		a.monkeyTargetMu.Unlock()
 		a.executionMu.Unlock()
 		fail(w, http.StatusConflict, errors.New("target-page case is not active for this Monkey run"))
@@ -189,4 +194,89 @@ func (a *API) runMonkeyTargetCase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "activity": request.Activity, "task": request.Task, "case": request.Case, "completedActions": state.Completed})
+}
+
+func (a *API) playPreparedTarget(ctx context.Context, activity, task, caseName string) error {
+	key := targetCaseKey(activity, task, caseName)
+	a.monkeyTargetMu.Lock()
+	plan := a.monkeyTarget
+	if plan == nil || plan.used[key] {
+		a.monkeyTargetMu.Unlock()
+		return nil
+	}
+	value, ok := plan.cases[key]
+	if !ok {
+		a.monkeyTargetMu.Unlock()
+		return nil
+	}
+	plan.used[key] = true
+	a.monkeyTargetMu.Unlock()
+	replayConfig := recordreplay.ReplayConfig{Execute: true, Speed: 1, Case: value}
+	if a.explorer != nil {
+		if owner, ok := a.explorer.ExecutionIdentity(); ok {
+			replayConfig.HostOwner = owner
+		}
+	}
+	state, err := a.recordReplay.StartReplay(ctx, replayConfig)
+	if err != nil {
+		a.releaseTargetCase(plan, key)
+		return err
+	}
+	deadline := time.NewTimer(5 * time.Minute)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for state.Running || state.Stopping || state.Finalizing {
+		select {
+		case <-ctx.Done():
+			if err = a.stopPreparedTarget(plan, key); err != nil {
+				return ctx.Err()
+			}
+			return nil
+		case <-deadline.C:
+			if err = a.stopPreparedTarget(plan, key); err != nil {
+				return errors.New("target-page case exceeded five minutes")
+			}
+			return nil
+		case <-ticker.C:
+			state = a.recordReplay.ReplayState()
+		}
+	}
+	if state.StopReason != "completed" {
+		a.releaseTargetCase(plan, key)
+		return fmt.Errorf("target-page case stopped: %s: %s", state.StopReason, state.Error)
+	}
+	return nil
+}
+
+func (a *API) stopPreparedTarget(plan *monkeyTargetPlan, key string) error {
+	stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _ = a.recordReplay.StopReplay(stopContext)
+	cancel()
+	state := a.recordReplay.ReplayState()
+	for state.Running || state.Stopping {
+		timer := time.NewTimer(50 * time.Millisecond)
+		<-timer.C
+		state = a.recordReplay.ReplayState()
+	}
+	if targetCaseCompleted(state) {
+		return nil
+	}
+	a.releaseTargetCase(plan, key)
+	if state.StopReason == "" {
+		return errors.New("target-page case did not finish")
+	}
+	return fmt.Errorf("target-page case stopped: %s: %s", state.StopReason, state.Error)
+}
+
+func targetCaseCompleted(state recordreplay.ReplayState) bool {
+	return !state.Running && !state.Stopping && state.StopReason == "completed"
+}
+
+func (a *API) releaseTargetCase(plan *monkeyTargetPlan, key string) {
+	a.monkeyTargetMu.Lock()
+	if a.monkeyTarget == plan {
+		plan.used[key] = false
+	}
+	a.monkeyTargetMu.Unlock()
 }

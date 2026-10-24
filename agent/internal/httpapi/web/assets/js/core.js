@@ -85,7 +85,7 @@
     agent: 'Agent 主服务', runtimeBootstrap: '运行环境引导', runnerPayload: '遍历执行器', companionPayload: '悬浮窗组件',
     uiautomatorHostPayload: '控件树宿主', uiautomatorTestPayload: '控件树执行组件', monitor: '异常监控', popupOverlayStartup: '悬浮窗启动',
     autoPopup: '悬浮窗服务', minitouch: '触控注入', uiautomator: '控件树服务', scrcpy: '屏幕控制', screenRecord: '屏幕录制',
-    explorationSession: '智能探索会话', runnerSession: '随机遍历会话', companion: '悬浮窗应用',
+    explorationSession: '遍历会话', runnerSession: '遍历会话', companion: '悬浮窗应用',
     running: '运行状态', events: '事件数', crashCount: 'Crash 数量', anrCount: 'ANR 数量', nativeCrashCount: 'Native Crash 数量',
     diagnosticsComplete: '诊断采集完成', steps: '执行步骤', discoveredStates: '发现状态', discoveredEdges: '状态连线', activityCovered: '覆盖页面',
     effectiveActions: '有效动作', ineffectiveActions: '无效动作', externalActions: '跨应用动作', staleActions: '过期动作', cycleDetections: '循环识别',

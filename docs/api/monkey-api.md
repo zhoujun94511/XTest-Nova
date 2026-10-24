@@ -1,13 +1,20 @@
 # Monkey 高级策略 API
 
-Nova 与 Companion 的 Monkey POST 接口接受同一结构化配置。基础字段为目标包、运行秒数、
-事件间隔和可选随机种子；高级字段如下：
+命令行 `monkey start`、Web 控制台的遍历和悬浮窗都向 Monkey POST 提交同一次遍历。
+Web 控制台填写运行时长和动作间隔。间隔默认 500 毫秒，范围 50–60000；低电量 15% 停止默认勾选，取消后不因电量停止。页面同时固定发送有界渲染和不限制活动范围。
+Agent 存在探索引擎时，这次请求由探索会话执行，不再另起一套随机过程。基础字段为目标包、
+运行秒数、事件间隔和可选随机种子。三个入口未改参数时都发送：间隔 500 毫秒、
+`renderFallbackMode=bounded`、`lowBatteryExit=true`、`minBatteryPercent=15`、
+`activityMode=none`。接口本身省略这些字段时，低电量退出为关闭，空的渲染策略按有界处理。
+
+高级字段如下：
 
 ```json
 {
   "package": "com.example.app",
   "durationSeconds": 600,
   "throttleMillis": 500,
+  "renderFallbackMode": "bounded",
   "lowBatteryExit": true,
   "minBatteryPercent": 15,
   "activityMode": "blocklist",
@@ -24,9 +31,26 @@ Nova 与 Companion 的 Monkey POST 接口接受同一结构化配置。基础字
 }
 ```
 
-`activityMode` 可为 `none`、`allowlist` 或 `blocklist`。Activity 守卫或控件黑名单命中时，
-Runner 执行返回并跳过本轮随机事件。目标 Activity 首次命中会记录结构化日志。
-相同 `requestId` 只有在规范化配置一致时才作为幂等重试返回原状态；同键异参返回 HTTP 409，且不会替换正在运行的目标页令牌或用例计划。
+`activityMode` 可为 `none`、`allowlist` 或 `blocklist`。当前前台不在允许范围内，或落在排除范围内时，
+会话按一次返回离开该页。控件黑名单按文本、描述和资源 ID 的片段匹配，只从候选控件里去掉命中项，
+不因此整页返回。广告、权限、付费墙和评分这些特殊页先处理，再应用黑名单。
+`renderFallbackMode` 可为 `off`、`bounded` 或 `continuous`。仅当页面没有可执行控件，
+且层级里有 `SurfaceView` 或 `UnityPlayer` 时才使用坐标点击。`bounded` 每个 Activity 最多 5 次，
+`continuous` 不设这个次数。
+
+设置 `durationSeconds` 后，会话只在时长到达时以 `duration_elapsed` 结束，步数不是停止条件。
+低电量每 30 秒读取一次 `dumpsys battery`，电量不高于 `minBatteryPercent` 时以 `low_battery` 结束；
+正在充电也不豁免。读数失败不停止。
+
+命令行、Web 和悬浮窗没有入口优先级。设备上已有遍历、录制或回放处于运行、停止或收尾时，
+新的启动返回 HTTP 409，正在执行的会话和它的目标页计划都保持不变。相同 `requestId`
+只有在规范化配置一致时才作为幂等重试返回原状态；同键异参同样返回 HTTP 409。
+三个入口通常各自生成新的请求，因此第二次点击是冲突，不是续跑，也不会排队。
+任一入口都可以读取当前会话身份并停止它。停止会等到正在执行的目标页回放不再占用输入，
+Agent 与悬浮窗这条停止请求最长等待 120 秒。
+
+目标 Activity 首次命中会进入已准备的签名用例。用例失败或单次回放超过五分钟时，
+该次不记为已完成，10 秒后可以再试；取消停止时不再改选另一个动作。
 
 `targetCases` 使用任务名和用例名引用 `/sdcard/xtest-nova/<目标包>/Replay` 中的录制用例。
 若存在多个同名版本，启动时选择最新的完整性有效用例。启动前必须同时满足：
@@ -37,11 +61,10 @@ Runner 执行返回并跳过本轮随机事件。目标 Activity 首次命中会
 - 同一映射没有重复；
 - 当前没有录制、回放或智能遍历占用输入会话。
 
-Agent 为每次运行生成一次性 128 位随机令牌，只通过 Runner 进程参数传递。Runner 命中目标
-页面后以同步本机回环请求触发用例；请求返回前随机循环处于暂停状态。Replay 完成后 Monkey
-继续，失败或超过五分钟则以 `target_case_failed` 明确结束。令牌重放、非当前运行令牌及未
-登记映射均被拒绝。外部停止会终止 Runner 和正在执行的目标页 Replay。
-目标页授权、Replay 启动和 Runner 停止共享同一执行边界，因此 Stop 返回后不会再由已授权的旧请求启动 Replay；Runner UTF-8 文本注入也遵循同一边界。
+Agent 为每次运行生成一次性 128 位随机令牌。探索会话命中目标页时，以当前会话为宿主执行
+对应的已签名用例；回放占用输入期间，遍历不再选择另一个动作。用例成功后会话继续。
+令牌重放、非当前运行令牌及未登记映射均被拒绝。外部停止会结束遍历，并等到正在执行的
+目标页回放退出。父会话释放时，托管中的回放所有权一并释放。
 
 `GET /v1/monkey/runs/current` 返回本次运行的 `identity.sessionId` 与临时
 `identity.ownerToken`。外部调用 `DELETE /v1/monkey/runs/current` 时必须将两者分别放入

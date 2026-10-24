@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.29.0 — 2026-10-24
+
+- Run CLI monkey, CLI exploration, the web console, and the overlay through one traversal session. A later start conflicts while a session is running, stopping, or finalizing.
+- Share the session guards across those entries: 500 ms action interval, bounded render fallback by default, low-battery stop at 15%, activity scope, control blacklist, and signed target-page cases. A timed session stops only when its duration elapses. An untimed session keeps the step budget, defaulting to 100 steps.
+- Persist per-package activity counts by versionCode, release the settle wait when the foreground activity or focused-window version changes, and attach up to eight preceding actions to crash and ANR reports without changing their fingerprints.
+- Run target-page replay as a hosted child of the traversal session. A failed case stays retryable after 10 seconds. Stop waits until that replay releases input, up to 120 seconds.
+- Collapse the overlay to an edge handle while traversal is running. A long press restores the panel. Recording keeps its own surface. The overlay watches the traversal session itself and waits up to 120 seconds for stop.
+- The web console traversal card keeps duration, a 500 ms interval, and the 15% low-battery checkbox. CLI and the overlay still accept activity scope, the control blacklist, and target-page cases.
+- A timed session that exhausts a special scene or three external-foreground recoveries cold-starts the target. A required policy still stops the session. A stuck page sends system BACK, then a left-edge swipe, a right-edge swipe, and a downward content swipe before that cold start. Each cold start waits up to 8 seconds for a splash.
+- Ordinary traversal skips customer-service and in-app feedback controls.
+- Raised the Agent size allowance for this session and split recording/replay persistence and Runner artifact writing into sibling files. The 0.28.0 release remains unchanged.
+
 ## 0.28.0 — 2026-10-23
 
 - Added on-device CLI commands for doctor, device, foreground, apps, screenshot, monkey, exploration, recording, replay, performance, artifacts, and pull. They call the on-device Agent over loopback. Stop commands send the session headers and omit owner tokens from text and JSON. Exploration without `--execute` stays preview-only, and `--json` includes `previewOnly: true`.

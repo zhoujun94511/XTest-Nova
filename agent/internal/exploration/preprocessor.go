@@ -315,6 +315,16 @@ func inspectSpecialActivity(hierarchy, targetPackage, foreground, activity strin
 			event.Reason = "permission controller has not exposed a safe decision control"
 			return event, true, nil
 		}
+		if kind == "review" {
+			action = specialBackAction(kind, foreground, pageText)
+			action.SpecialKind = kind
+			action.Policy = selectedPolicy
+			action.Recovery = true
+			event.Outcome = "action"
+			event.Action = &action
+			event.Reason = "review dialog has no safe dismiss control"
+			return event, true, nil
+		}
 		event.Outcome = "unhandled"
 		event.Reason = "no safe action matched the selected policy"
 		return event, true, nil

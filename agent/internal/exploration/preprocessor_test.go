@@ -175,6 +175,21 @@ func TestShortsWaveWebAdUsesExplicitNonClickableCloseBar(t *testing.T) {
 	}
 }
 
+func TestInterstitialCloseButtonBeatsInnerClose(t *testing.T) {
+	hierarchy := `<hierarchy><node package="com.shorts.wave.drama" class="android.widget.FrameLayout" bounds="[0,0][1156,2510]" enabled="true" visible-to-user="true"><node package="com.shorts.wave.drama" class="android.widget.Button" content-desc="Close" bounds="[1047,180][1122,252]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.shorts.wave.drama" class="android.widget.ImageButton" content-desc="Interstitial close button" bounds="[946,0][1156,210]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
+	policy := SpecialHandling{}
+	if err := policy.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	event, found, err := inspectSpecialActivity(hierarchy, "com.shorts.wave.drama", "com.shorts.wave.drama", "com.shorts.wave.drama/com.google.android.gms.ads.AdActivity", policy)
+	if err != nil || !found || event.Action == nil || event.Action.Description != "Interstitial close button" {
+		t.Fatalf("event=%#v found=%v err=%v", event, found, err)
+	}
+	if event.Action.X != 1051 || event.Action.Y != 105 {
+		t.Fatalf("tap=%d,%d", event.Action.X, event.Action.Y)
+	}
+}
+
 func TestRewardExitConfirmationSelectsGiveUpNotContinueWatching(t *testing.T) {
 	hierarchy := `<hierarchy><node package="com.example" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]" enabled="true" visible-to-user="true"><node package="com.example" class="android.widget.TextView" text="关闭将失去奖励，是否继续观看？" bounds="[100,800][980,1000]" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="继续观看" bounds="[100,1100][500,1250]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="放弃奖励" bounds="[580,1100][980,1250]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
 	policy := SpecialHandling{}
@@ -294,6 +309,11 @@ func TestGooglePlayReviewDialogIsDismissedButOtherStorePagesAreNotTrusted(t *tes
 	if event, found, err = inspectSpecial(storePage, "com.example", "com.android.vending", policy); err != nil || found {
 		t.Fatalf("ordinary store page was trusted: %#v, found=%v, err=%v", event, found, err)
 	}
+	unmarked := `<hierarchy><node package="com.android.vending" class="android.widget.TextView" text="评价此应用" bounds="[0,0][800,100]" enabled="true" visible-to-user="true"/><node package="com.android.vending" class="android.widget.Button" text="提交" bounds="[10,200][210,300]" clickable="true" enabled="true" visible-to-user="true"/></hierarchy>`
+	event, found, err = inspectSpecial(unmarked, "com.example", "com.android.vending", policy)
+	if err != nil || !found || event.Kind != "review" || event.Action == nil || event.Action.Type != "back" {
+		t.Fatalf("review without a dismiss control = %#v, found=%v, err=%v", event, found, err)
+	}
 }
 
 func TestOnboardingFallsBackToHorizontalSwipe(t *testing.T) {
@@ -322,5 +342,16 @@ func TestForeignTransientWindowDoesNotChangeTargetFingerprint(t *testing.T) {
 	}
 	if a.Fingerprint != b.Fingerprint {
 		t.Fatalf("transient foreign window changed target fingerprint: %s != %s", a.Fingerprint, b.Fingerprint)
+	}
+}
+
+func TestCustomerServiceIsNotAnOrdinaryAction(t *testing.T) {
+	hierarchy := `<hierarchy><node package="com.example" class="android.widget.FrameLayout" bounds="[0,0][1080,1920]" enabled="true" visible-to-user="true"><node package="com.example" class="android.widget.Button" text="Customer Service" bounds="[100,1600][500,1740]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="反馈" bounds="[600,1600][900,1740]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="Play" bounds="[100,400][400,540]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
+	analysis, err := Analyze(hierarchy, "com.example", Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(analysis.Actions) != 1 || analysis.Actions[0].Text != "Play" {
+		t.Fatalf("actions = %#v", analysis.Actions)
 	}
 }

@@ -23,13 +23,52 @@ func (a *API) registerExplorationRoutes(m *http.ServeMux) {
 }
 
 func (a *API) monkeyReport(w http.ResponseWriter, r *http.Request) {
-	state := a.runner.State()
 	scenario := r.URL.Query().Get("scenario")
 	if scenario == "" {
 		scenario = "unspecified"
 	}
+	if a.explorer != nil && useExplorationForMonkey(a.explorer.State(), a.runner.State()) {
+		report := evaluation.FromNova(scenario, Version, a.explorer.State(), a.explorer.Graph(), a.explorer.Steps())
+		writeJSON(w, http.StatusOK, report)
+		return
+	}
+	state := a.runner.State()
 	report := evaluation.FromRunner(scenario, Version, runner.RunConfig{RequestID: state.RequestID, Package: state.Package}, state)
 	writeJSON(w, http.StatusOK, report)
+}
+
+func (a *API) bindExplorationTargets(config *exploration.Config) error {
+	if len(config.TargetCases) == 0 {
+		a.clearMonkeyTargetPlan()
+		a.explorer.SetTargetReplay(nil)
+		return nil
+	}
+	run := runner.RunConfig{RequestID: config.RequestID, Package: config.Package}
+	for _, target := range config.TargetCases {
+		run.TargetCases = append(run.TargetCases, runner.TargetCase{Activity: target.Activity, Task: target.Task, Case: target.Case})
+	}
+	plan, err := a.prepareMonkeyTargetPlan(&run)
+	if err != nil {
+		return err
+	}
+	if plan == nil {
+		a.clearMonkeyTargetPlan()
+		a.explorer.SetTargetReplay(nil)
+		return nil
+	}
+	a.setMonkeyTargetPlan(plan)
+	a.explorer.SetTargetReplay(a.playPreparedTarget)
+	return nil
+}
+
+func useExplorationForMonkey(explored exploration.State, runnerState runner.State) bool {
+	if explored.StartedAt == nil {
+		return false
+	}
+	if explored.Running || explored.Stopping || explored.Finalizing {
+		return true
+	}
+	return !runnerState.Running && !runnerState.Finalizing
 }
 
 func (a *API) explorationReport(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +129,11 @@ func (a *API) startExploration(w http.ResponseWriter, r *http.Request) {
 	if !decodeExplorationJSON(w, r, &config) {
 		return
 	}
+	if config.VersionCode <= 0 && a.apps != nil {
+		if info, err := a.apps.Info(r.Context(), config.Package); err == nil && info.VersionCode > 0 {
+			config.VersionCode = info.VersionCode
+		}
+	}
 	a.executionMu.Lock()
 	defer a.executionMu.Unlock()
 	if a.shuttingDown {
@@ -108,8 +152,14 @@ func (a *API) startExploration(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := a.bindExplorationTargets(&config); err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return
+	}
 	state, err := a.explorer.Start(config)
 	if err != nil {
+		a.clearMonkeyTargetPlan()
+		a.explorer.SetTargetReplay(nil)
 		fail(w, http.StatusConflict, err)
 		return
 	}

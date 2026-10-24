@@ -3,6 +3,8 @@ package runner
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +120,26 @@ func TestAnalyzeDiagnosticsDoesNotClassifyStaleLastANR(t *testing.T) {
 	}
 	if !strings.Contains(result.Diagnostics, "[lastanr]") || !strings.Contains(result.Diagnostics, packageName) {
 		t.Fatalf("lastanr supporting evidence was not preserved: %s", result.Diagnostics)
+	}
+}
+
+func TestPrecedingActionsStopAtTheIncident(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "events.jsonl")
+	crashAt := time.UnixMilli(2_000).UTC()
+	body := "" +
+		`{"state":"node_tap","activity":"com.example/.List","node":"open","time":1000}` + "\n" +
+		`{"state":"node_input","activity":"com.example/.List","node":"query","time":1500}` + "\n" +
+		`{"state":"scene","scene":"list","time":1600}` + "\n" +
+		`{"state":"node_tap","activity":"com.example/.Detail","node":"after","time":2500}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	incidents := []diagnosticIncident{{Kind: "java_crash", parsedTime: crashAt}}
+	attachPrecedingActions(incidents, path)
+	actions := incidents[0].PrecedingActions
+	if len(actions) != 2 || actions[0].Action != "tap|open" || actions[1].Action != "input|query" || actions[1].Activity != "com.example/.List" {
+		t.Fatalf("preceding = %#v", actions)
 	}
 }
 

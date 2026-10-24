@@ -53,6 +53,7 @@ type Coordinator struct {
 	mu         sync.Mutex
 	generation uint64
 	active     *Identity
+	hosted     *Identity
 }
 
 func NewCoordinator() *Coordinator { return &Coordinator{} }
@@ -69,23 +70,53 @@ func (c *Coordinator) Acquire(kind, requestID string) (Identity, error) {
 	return identity, nil
 }
 
+// AcquireHosted starts a child session while the parent still owns the device.
+// Releasing the child leaves the parent in place.
+func (c *Coordinator) AcquireHosted(parent Identity, kind, requestID string) (Identity, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !sameOwner(c.active, parent) {
+		return Identity{}, ErrOwnerMismatch
+	}
+	if c.hosted != nil {
+		return Identity{}, ErrOwned
+	}
+	c.generation++
+	identity := NewIdentity(kind, requestID, c.generation)
+	c.hosted = &identity
+	return identity, nil
+}
+
 func (c *Coordinator) Validate(sessionID, ownerToken string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.active == nil || c.active.SessionID != sessionID || c.active.OwnerToken != ownerToken {
-		return ErrOwnerMismatch
+	if sameSession(c.hosted, sessionID, ownerToken) || sameSession(c.active, sessionID, ownerToken) {
+		return nil
 	}
-	return nil
+	return ErrOwnerMismatch
 }
 
 func (c *Coordinator) Release(identity Identity) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.active == nil || c.active.SessionID != identity.SessionID || c.active.OwnerToken != identity.OwnerToken || c.active.Generation != identity.Generation {
+	if sameOwner(c.hosted, identity) {
+		c.hosted = nil
+		return true
+	}
+	if !sameOwner(c.active, identity) {
 		return false
 	}
 	c.active = nil
+	c.hosted = nil
 	return true
+}
+
+func sameOwner(active *Identity, identity Identity) bool {
+	return active != nil && active.SessionID == identity.SessionID && active.OwnerToken == identity.OwnerToken && active.Generation == identity.Generation
+}
+
+func sameSession(active *Identity, sessionID, ownerToken string) bool {
+	return active != nil && active.SessionID == sessionID && active.OwnerToken == ownerToken
 }
 
 func (c *Coordinator) Active() (Identity, bool) {

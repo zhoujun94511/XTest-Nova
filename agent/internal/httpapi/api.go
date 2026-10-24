@@ -420,9 +420,27 @@ func (a *API) shell(w http.ResponseWriter, r *http.Request) {
 func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
+		if a.explorer != nil && useExplorationForMonkey(a.explorer.State(), a.runner.State()) {
+			writeJSON(w, 200, a.explorer.State())
+			return
+		}
 		writeJSON(w, 200, a.runner.State())
 	case "DELETE":
 		a.executionMu.Lock()
+		if a.explorer != nil {
+			state := a.explorer.State()
+			if state.Running || state.Stopping || state.Finalizing {
+				sessionID, ownerToken := executionCredentials(r)
+				stopped, err := a.explorer.StopOwned(r.Context(), sessionID, ownerToken)
+				a.executionMu.Unlock()
+				if err != nil {
+					fail(w, http.StatusConflict, err)
+					return
+				}
+				writeJSON(w, 200, stopped)
+				return
+			}
+		}
 		var s runner.State
 		var e error
 		if owned, ok := a.runner.(interface {
@@ -503,6 +521,57 @@ func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 		if e != nil {
 			a.executionMu.Unlock()
 			fail(w, http.StatusBadRequest, e)
+			return
+		}
+		if a.explorer != nil {
+			if e = c.Validate(); e != nil {
+				a.executionMu.Unlock()
+				fail(w, http.StatusBadRequest, e)
+				return
+			}
+			interval := c.ThrottleMillis
+			if interval < 100 {
+				interval = 100
+			}
+			mode := c.RenderFallbackMode
+			if mode == "" {
+				mode = "bounded"
+			}
+			cases := make([]exploration.TargetCase, 0, len(c.TargetCases))
+			for _, target := range c.TargetCases {
+				cases = append(cases, exploration.TargetCase{Activity: target.Activity, Task: target.Task, Case: target.Case})
+			}
+			graph := exploration.Config{
+				RequestID: c.RequestID, Package: c.Package, DurationSeconds: c.DurationSeconds,
+				IntervalMillis: interval, Seed: c.Seed, Execute: true,
+				EnableScroll: true, EnableBacktrack: true, RecoverPopups: true,
+				ActivityMode: c.ActivityMode, Activities: c.Activities, ControlBlacklist: c.ControlBlacklist,
+				RenderFallbackMode: mode, LowBatteryExit: c.LowBatteryExit, MinBattery: c.MinBattery,
+				TargetCases:   cases,
+				InputStrategy: exploration.InputStrategy{CasesPerField: c.InputCasesPerField, MaxLength: c.InputMaxLength},
+			}
+			if graph.VersionCode <= 0 && a.apps != nil {
+				if info, err := a.apps.Info(r.Context(), graph.Package); err == nil && info.VersionCode > 0 {
+					graph.VersionCode = info.VersionCode
+				}
+			}
+			if plan != nil {
+				a.setMonkeyTargetPlan(plan)
+				a.explorer.SetTargetReplay(a.playPreparedTarget)
+			} else {
+				a.clearMonkeyTargetPlan()
+				a.explorer.SetTargetReplay(nil)
+			}
+			state, err := a.explorer.Start(graph)
+			a.executionMu.Unlock()
+			if err != nil {
+				if plan != nil {
+					a.clearMonkeyTargetPlan()
+				}
+				fail(w, http.StatusConflict, err)
+				return
+			}
+			writeJSON(w, http.StatusAccepted, state)
 			return
 		}
 		s, e := a.runner.Start(c)

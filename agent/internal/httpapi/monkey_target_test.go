@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/zhoujun94511/xtest-nova/agent/internal/exploration"
 	"github.com/zhoujun94511/xtest-nova/agent/internal/platform"
 	"github.com/zhoujun94511/xtest-nova/agent/internal/recordreplay"
 	"github.com/zhoujun94511/xtest-nova/agent/internal/runner"
@@ -139,5 +140,44 @@ func TestRunnerStopCannotCrossTargetCaseAuthorizationBoundary(t *testing.T) {
 	case <-targetDone:
 	case <-time.After(2 * time.Second):
 		t.Fatal("target request did not finish")
+	}
+}
+
+func TestFinalizingCompletedTargetCaseStaysPlayed(t *testing.T) {
+	state := recordreplay.ReplayState{Finalizing: true, StopReason: "completed"}
+	if !targetCaseCompleted(state) {
+		t.Fatal("completed replay was rejected while artifacts were still being written")
+	}
+	state.Running = true
+	if targetCaseCompleted(state) {
+		t.Fatal("running replay was treated as completed")
+	}
+	if targetCaseCompleted(recordreplay.ReplayState{Finalizing: true, StopReason: "stopped"}) {
+		t.Fatal("stopped replay was treated as completed")
+	}
+}
+
+func TestMonkeyViewFollowsTheExplorationSession(t *testing.T) {
+	started := time.Now()
+	explored := exploration.State{StartedAt: &started, StopReason: "duration_elapsed"}
+	if !useExplorationForMonkey(explored, runner.State{}) {
+		t.Fatal("finished exploration was hidden behind the idle runner")
+	}
+	if useExplorationForMonkey(exploration.State{}, runner.State{Running: true}) {
+		t.Fatal("runner session was replaced before exploration started")
+	}
+}
+
+func TestExplorationStartPreparesTargetReplay(t *testing.T) {
+	explorer := exploration.New(nil, nil, nil)
+	api := &API{runner: &fakeRunner{}, explorer: explorer}
+	response := httptest.NewRecorder()
+	body := `{"package":"com.example.app","execute":false,"maxSteps":1,"targetCases":[{"activity":".Feed","task":"smoke","case":"open"}]}`
+	api.startExploration(response, httptest.NewRequest(http.MethodPost, "/v1/exploration/sessions", strings.NewReader(body)))
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "record/replay engine unavailable") {
+		t.Fatalf("response=%d %s", response.Code, response.Body.String())
+	}
+	if explorer.State().Running {
+		t.Fatal("missing target case started exploration")
 	}
 }

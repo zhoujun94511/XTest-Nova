@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	cycleHistoryLimit       = 64
-	cycleMaxPeriod          = 8
-	cycleRepetitions        = 3
-	repeatedTransitionLimit = 4
+	cycleHistoryLimit            = 64
+	cycleMaxPeriod               = 8
+	cycleRepetitions             = 3
+	repeatedTransitionLimit      = 4
+	stallEscalationCooldownSteps = 60
 )
 
 type transitionSample struct {
@@ -86,3 +87,12 @@ func semanticStateKey(analysis Analysis, activity string) string {
 }
 
 func explorationEdgeKey(state, action string) string { return state + "\x00" + action }
+
+// armStallEscalation allows one recovery after a blocked loop. The same screen
+// stays cooled down so exploration does not relaunch or backtrack again immediately.
+func armStallEscalation(state string, step, cooldownUntil int, cooledState string) bool {
+	if state == "" {
+		return false
+	}
+	return state != cooledState || step >= cooldownUntil
+}

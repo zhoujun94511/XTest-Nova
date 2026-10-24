@@ -119,21 +119,14 @@
       </section>
 
       <section id="automation" class="view" aria-labelledby="automation-title">
-        <div class="section-intro"><div><span class="overline">自动化测试</span><h2 id="automation-title">自动化测试</h2><p>随机遍历、智能探索和录制回放共享当前目标应用。</p></div><label class="field module-target"><span>目标应用</span><select id="automation-package" data-package-select><option value="">请选择目标应用</option></select></label></div>
+        <div class="section-intro"><div><span class="overline">自动化测试</span><h2 id="automation-title">自动化测试</h2><p>遍历和录制回放共享当前目标应用。</p></div><label class="field module-target"><span>目标应用</span><select id="automation-package" data-package-select><option value="">请选择目标应用</option></select></label></div>
         <div class="workflow-grid">
-          <article class="panel workflow-card">
-            <div class="workflow-heading"><span class="workflow-icon">M</span><div><h3>随机遍历</h3><p>适合稳定性、异常捕获与广度覆盖。</p></div><span class="state-pill" id="monkey-state-pill">空闲</span></div>
-            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="monkey-duration" type="number" min="1" max="86400" value="60"><span>秒</span></span></label><label class="field"><span>事件间隔</span><span class="input-unit"><input id="monkey-throttle" type="number" min="0" max="60000" value="500"><span>ms</span></span></label><label class="field"><span>纯渲染页面策略</span><select id="monkey-render-fallback"><option value="bounded" selected>有界兜底（推荐）</option><option value="off">关闭坐标兜底</option><option value="continuous">持续探索（游戏，需明确授权）</option></select></label></div>
-            <div class="action-row"><button data-action="monkey-start">开始测试</button><button class="secondary" data-action="monkey-refresh">查看状态</button><button class="danger-quiet" data-action="monkey-stop">停止</button></div>
-            <div id="monkey-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
-          </article>
-
-          <article class="panel workflow-card featured">
-            <div class="workflow-heading"><span class="workflow-icon">E</span><div><h3>智能探索</h3><p>基于控件树建立状态图并安全回溯。</p></div><span class="state-pill" id="exploration-state-pill">空闲</span></div>
-            <div class="form-grid three"><label class="field"><span>最大步骤</span><input id="explore-steps" type="number" min="1" max="10000" value="100"></label><label class="field"><span>动作间隔 (ms)</span><input id="explore-interval" type="number" min="100" max="60000" value="750"></label><label class="field"><span>最大回溯</span><input id="explore-backtracks" type="number" min="1" max="1000" value="20"></label></div>
-            <div class="switch-row"><label class="switch"><input id="explore-execute" type="checkbox" checked><span>执行动作</span></label><label class="switch"><input id="explore-scroll" type="checkbox" checked><span>滚动探索</span></label><label class="switch"><input id="explore-backtrack" type="checkbox" checked><span>允许回溯</span></label><label class="switch"><input id="explore-recover" type="checkbox" checked><span>弹窗恢复</span></label></div>
-            <div class="action-row"><button data-action="explore-start">开始探索</button><button class="secondary" data-action="explore-preview">预览动作</button><button class="secondary" data-action="explore-refresh">查看状态</button><button class="danger-quiet" data-action="explore-stop">停止</button></div>
-            <div id="explore-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
+          <article class="panel workflow-card full-span">
+            <div class="workflow-heading"><span class="workflow-icon">T</span><div><h3>遍历</h3><p>在目标应用内按设定时长执行，到点结束。</p></div><span class="state-pill" id="traversal-state-pill">空闲</span></div>
+            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="traversal-duration" type="number" min="1" max="604800" value="60" required><span>秒</span></span></label><label class="field"><span>动作间隔</span><span class="input-unit"><input id="traversal-interval" type="number" min="50" max="60000" value="500" required><span>毫秒</span></span></label></div>
+            <div class="switch-row"><label class="switch"><input id="traversal-low-battery" type="checkbox" checked>低电量 15% 停止</label></div>
+            <div class="action-row"><button data-action="traversal-start">开始</button><button class="secondary" data-action="traversal-preview">预览动作</button><button class="danger-quiet" data-action="traversal-stop">停止</button></div>
+            <div id="traversal-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
           </article>
 
           <article class="panel workflow-card full-span">
@@ -206,7 +199,7 @@
       <section id="artifacts" class="view" aria-labelledby="artifacts-title">
         <div class="section-intro"><div><span class="overline">测试产物</span><h2 id="artifacts-title">测试产物</h2><p>按应用和任务类型检索结果，直接下载单个文件。</p></div><button data-action="artifacts-refresh">查询产物</button></div>
         <article class="panel">
-          <div class="filter-row"><label class="field"><span>目标应用（可选）</span><select id="artifact-package" data-package-filter><option value="">全部应用</option></select></label><label class="field"><span>任务类型（可选）</span><select id="artifact-kind"><option value="">全部类型</option><option value="Monkey">随机遍历</option><option value="Exploration">智能探索</option><option value="Performance">性能采集</option><option value="Startup">启动性能</option><option value="ReplayRuns">用例回放</option></select></label><label class="field"><span>结果数量</span><select id="artifact-limit"><option>20</option><option selected>50</option><option>100</option></select></label></div>
+          <div class="filter-row"><label class="field"><span>目标应用（可选）</span><select id="artifact-package" data-package-filter><option value="">全部应用</option></select></label><label class="field"><span>任务类型（可选）</span><select id="artifact-kind"><option value="">全部类型</option><option value="Monkey">遍历</option><option value="Exploration">历史探索</option><option value="Performance">性能采集</option><option value="Startup">启动性能</option><option value="ReplayRuns">用例回放</option></select></label><label class="field"><span>结果数量</span><select id="artifact-limit"><option>20</option><option selected>50</option><option>100</option></select></label></div>
           <div id="artifacts-output" class="artifact-list"><p class="empty-state">点击“查询产物”查看最近结果。</p></div>
         </article>
         <article class="panel file-browser-panel">
@@ -254,11 +247,11 @@
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <div id="global-progress" class="global-progress" hidden><span></span></div>
 
-  <script defer src="assets/js/core.js?v=2"></script>
+  <script defer src="assets/js/core.js?v=3"></script>
   <script defer src="assets/js/renderers.js?v=4"></script>
   <script defer src="assets/js/package-selector.js?v=3"></script>
   <script defer src="assets/js/remote-control.js?v=2"></script>
   <script defer src="assets/js/performance.js?v=2"></script>
-  <script defer src="assets/js/app.js?v=6"></script>
+  <script defer src="assets/js/app.js?v=9"></script>
 </body>
 </html>

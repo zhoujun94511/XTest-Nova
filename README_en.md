@@ -69,8 +69,7 @@ Diagnostics
 
 **Automation**
 
-- Intelligent exploration: find tappable, scrollable, and input nodes from the UI tree, keep a scene graph, and support backtracking plus replay of known paths.
-- Monkey: start structured random traversal for a target app, with duration, throttle, low-battery exit, and artifact finalization after stop.
+- Traversal: start one session for a target app and a duration. It chooses actions from the UI tree, backtracks, recovers popups, and stops when the time is up. The web console asks for the duration and action interval, and offers a 15% low-battery stop checkbox. The command line and overlay can also set the activity scope, control skip list, and target-page replay. A later start conflicts while one is already running.
 - Record/replay: record touches, text, and gestures, replay them with normalized coordinates, and report passed / failed / not tested.
 - On-device overlay: pick the target app, change parameters, and start or stop a run from the phone without going back to the PC.
 

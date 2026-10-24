@@ -696,6 +696,27 @@ func TestBoundedInputDoesNotPolluteNavigationCycleGuard(t *testing.T) {
 	}
 }
 
+func TestSamePageFeedSwipeDoesNotBlockTheCycle(t *testing.T) {
+	guard := &cycleGuard{}
+	swipe := Action{Type: "swipe", Class: "androidx.viewpager.widget.ViewPager"}
+	for index := 0; index < 5; index++ {
+		if period := observeExplorationCycle(guard, swipe, "feed", "swipe|pager", "feed", "feed"); period != 0 {
+			t.Fatalf("feed swipe produced cycle period %d", period)
+		}
+	}
+	if len(guard.history) != 0 {
+		t.Fatalf("feed swipe polluted navigation history: %#v", guard.history)
+	}
+	tap := Action{Type: "tap", Class: "android.widget.Button"}
+	var period int
+	for index := 0; index < 3; index++ {
+		period = observeExplorationCycle(guard, tap, "feed", "tap|button", "feed", "feed")
+	}
+	if period != 1 {
+		t.Fatalf("repeated same-page tap period = %d", period)
+	}
+}
+
 func TestScrollBacktrackUsesReverseSwipe(t *testing.T) {
 	forward := Action{ID: "forward", Type: "swipe", Direction: "forward", X: 100, Y: 800, EndX: 100, EndY: 200}
 	reverse := inverseAction(forward, "child", "parent")
@@ -955,5 +976,112 @@ func TestSpecialHandlingStopsAfterBoundedAttempts(t *testing.T) {
 	state := manager.State()
 	if state.Running || state.StopReason != "special_handling_failed" || state.Steps != 2 || state.LastSpecial == nil || state.LastSpecial.Outcome != "attempt_limit" {
 		t.Fatalf("state = %#v", state)
+	}
+}
+
+func TestTimedSpecialHandlingRestartsAfterBoundedAttempts(t *testing.T) {
+	device := &fakeDevice{foreground: "com.example", hierarchy: termsHierarchy}
+	manager := New(device, device, device)
+	_, err := manager.Start(Config{RequestID: "timed-special-restart", Package: "com.example", DurationSeconds: 30, IntervalMillis: 100, Execute: true, SpecialHandling: SpecialHandling{MaxAttempts: 2}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(12 * time.Second)
+	seenBack, seenColdStart := false, false
+	for time.Now().Before(deadline) && !(seenBack && seenColdStart) {
+		time.Sleep(20 * time.Millisecond)
+		state := manager.State()
+		if state.StopReason == "special_handling_failed" {
+			t.Fatalf("timed session stopped instead of restarting: %#v", state)
+		}
+		device.mu.Lock()
+		for _, command := range device.commands {
+			joined := strings.Join(command, " ")
+			if joined == "input keyevent BACK" {
+				seenBack = true
+			}
+			if strings.HasPrefix(joined, "am force-stop ") {
+				seenColdStart = true
+			}
+		}
+		device.mu.Unlock()
+	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := manager.Stop(stopContext); err != nil {
+		t.Fatal(err)
+	}
+	if !seenBack || !seenColdStart {
+		t.Fatalf("back=%v cold=%v commands=%v", seenBack, seenColdStart, device.commands)
+	}
+}
+
+type interruptedMemoryDevice struct {
+	mu    sync.Mutex
+	stage int
+}
+
+func (d *interruptedMemoryDevice) Hierarchy(context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	switch d.stage {
+	case 0:
+		return pageA, nil
+	case 1:
+		return termsHierarchy, nil
+	default:
+		return pageB, nil
+	}
+}
+
+func (*interruptedMemoryDevice) ForegroundPackage(context.Context) (string, error) {
+	return "com.example", nil
+}
+
+func (d *interruptedMemoryDevice) ForegroundActivity(context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	switch d.stage {
+	case 0:
+		return "com.example/.List", nil
+	case 1:
+		return "com.example/.Consent", nil
+	default:
+		return "com.example/.Detail", nil
+	}
+}
+
+func (d *interruptedMemoryDevice) Run(_ context.Context, name string, args ...string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if name == "input" && len(args) > 0 && args[0] == "tap" && d.stage < 2 {
+		d.stage++
+	}
+	return "", nil
+}
+
+func (*interruptedMemoryDevice) RunBytes(context.Context, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func TestSpecialStepDoesNotAttributeLandingToPendingAction(t *testing.T) {
+	root := t.TempDir()
+	device := &interruptedMemoryDevice{}
+	manager := New(device, device, device)
+	manager.SetArtifactRoot(root)
+	if _, err := manager.Start(Config{RequestID: "special-memory", Package: "com.example", VersionCode: 12, MaxSteps: 5, IntervalMillis: 100, Execute: true}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for manager.State().Running && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	state, steps := manager.State(), manager.Steps()
+	if state.Running || state.SpecialActions < 1 || len(steps) < 2 || steps[0].Action.Text != "打开" || steps[0].Destination == "" {
+		t.Fatalf("state=%#v steps=%#v", state, steps)
+	}
+	memory := loadActivityMemory(root, "com.example", 12)
+	if known, _ := memory.unseenFraction(semanticActionKey(steps[0].Action), nil); known {
+		t.Fatal("landing after a special step was stored for the pending action")
 	}
 }

@@ -86,6 +86,8 @@ public final class OverlayService extends Service {
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean destroyed;
     private boolean automationSuppressed;
+    private boolean autoMinimized;
+    private boolean handleRecalled;
     private static volatile String controlState = "absent";
     private int generation;
     private final Runnable overlayPermissionGuard = new Runnable() {
@@ -107,7 +109,10 @@ public final class OverlayService extends Service {
                 .setSmallIcon(android.R.drawable.ic_media_play).build());
         manager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (!hasOverlayPermission()) stopSelf();
-        else main.postDelayed(overlayPermissionGuard, 1000);
+        else {
+            main.postDelayed(overlayPermissionGuard, 1000);
+            main.post(this::watchAutomationTasks);
+        }
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -123,19 +128,68 @@ public final class OverlayService extends Service {
     }
 
     private void suppressForAutomation() {
-        automationSuppressed = true;
-        ++generation;
-        if (view != null) {
-            try { manager.removeView(view); } catch (RuntimeException ignored) { }
-            view = null;
-        }
-        controlState = "suppressed";
+        // A running traversal keeps the edge handle. Removing the window here
+        // leaves nothing to long-press, and the session end can only pop the
+        // full menu back.
+        handleRecalled = false;
+        if (!isAutomationHandle(view) && !isRecordingSurface(view)) showMinimized();
+        autoMinimized = isAutomationHandle(view);
+        if (autoMinimized) controlState = "minimized";
     }
 
     private void restoreAfterAutomation() {
-        if (!automationSuppressed) return;
+        boolean restore = autoMinimized && !handleRecalled && isAutomationHandle(view);
+        autoMinimized = false;
         automationSuppressed = false;
-        if (view == null) showMain();
+        if (restore) showMain();
+    }
+
+    private void watchAutomationTasks() {
+        if (destroyed) return;
+        worker.execute(() -> {
+            boolean running = automationTaskRunning();
+            runUi(() -> {
+                if (destroyed) return;
+                applyAutomationWindow(running);
+                main.postDelayed(this::watchAutomationTasks, 500);
+            });
+        });
+    }
+
+    private boolean automationTaskRunning() {
+        try { if (AgentClient.isRunning(AgentClient.monkeyState())) return true; }
+        catch (Exception ignored) { }
+        try { if (AgentClient.isRunning(AgentClient.explorationState())) return true; }
+        catch (Exception ignored) { }
+        return false;
+    }
+
+    private void applyAutomationWindow(boolean running) {
+        if (running) {
+            if (handleRecalled || isRecordingSurface(view)) return;
+            if (!isAutomationHandle(view)) showMinimized();
+            autoMinimized = isAutomationHandle(view);
+            if (autoMinimized) controlState = "minimized";
+            return;
+        }
+        boolean restore = autoMinimized && isAutomationHandle(view);
+        handleRecalled = false;
+        autoMinimized = false;
+        if (restore) showMain();
+    }
+
+    private boolean isAutomationHandle(View candidate) {
+        return hasDescription(candidate, "automation-handle");
+    }
+
+    private boolean isRecordingSurface(View candidate) {
+        return hasDescription(candidate, "recording-surface");
+    }
+
+    private boolean hasDescription(View candidate, String value) {
+        if (candidate == null) return false;
+        CharSequence description = candidate.getContentDescription();
+        return description != null && value.contentEquals(description);
     }
 
     static String controlState() { return controlState; }
@@ -364,6 +418,7 @@ public final class OverlayService extends Service {
     private void showRecordingRunning(String packageName) {
         int token = ++generation;
         LinearLayout box = column(PANEL);
+        box.setContentDescription("recording-surface");
         TextView handle = label("录制中 · 拖动或收起", 15, RED);
         handle.setMinHeight(dp(40));
         handle.setGravity(Gravity.CENTER);
@@ -390,6 +445,7 @@ public final class OverlayService extends Service {
         int width = recordingHandleWidth();
         int height = recordingHandleHeight();
         FrameLayout box = new FrameLayout(this);
+        box.setContentDescription("recording-surface");
         TextView pill = label("录 0", isTablet() ? 14 : 12, WHITE);
         pill.setContentDescription("recording-handle");
         pill.setGravity(Gravity.CENTER);
@@ -864,13 +920,20 @@ public final class OverlayService extends Service {
 
         // Keep this developer control out of target-app discovery. A random tap
         // is harmless; reopening the menu requires a deliberate long press.
+        touchTarget.setContentDescription("automation-handle");
         touchTarget.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         touchTarget.setSoundEffectsEnabled(false);
         touchTarget.setOnClickListener(v -> { });
-        touchTarget.setOnLongClickListener(v -> { showMain(); return true; });
+        touchTarget.setOnLongClickListener(v -> {
+            handleRecalled = true;
+            autoMinimized = false;
+            showMain();
+            return true;
+        });
         int touchWidth = dp(isTablet() ? TABLET_MINIMIZED_TOUCH_WIDTH_DP : MINIMIZED_TOUCH_WIDTH_DP);
         int touchHeight = dp(isTablet() ? TABLET_MINIMIZED_TOUCH_HEIGHT_DP : MINIMIZED_TOUCH_HEIGHT_DP);
         replace(touchTarget, touchWidth, touchHeight, false, 0, dp(MINIMIZED_TOP_INSET_DP));
+        controlState = "minimized";
     }
 
     private LinearLayout titleBar(String text) {

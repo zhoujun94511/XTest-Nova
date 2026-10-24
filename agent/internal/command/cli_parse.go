@@ -293,9 +293,9 @@ func parseFlags(args []string) (map[string]string, []string, error) {
 		}
 		name := strings.TrimPrefix(arg, "--")
 		switch name {
-		case "execute":
+		case "execute", "low-battery":
 			flags[name] = "true"
-		case "package", "duration", "name", "task":
+		case "package", "duration", "name", "task", "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases":
 			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
 				return nil, nil, fmt.Errorf("--%s requires a value", name)
 			}
@@ -314,7 +314,7 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 		case "package":
 			invocation.PackageName = value
 		case "duration":
-			if invocation.Kind != Monkey {
+			if invocation.Kind != Monkey && invocation.Kind != Explore {
 				return fmt.Errorf("unknown flag \"--duration\"")
 			}
 			seconds, err := strconv.Atoi(value)
@@ -337,8 +337,18 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 				return fmt.Errorf("unknown flag \"--execute\"")
 			}
 			invocation.Execute = true
+		case "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases", "low-battery":
+			starting := (invocation.Kind == Monkey && invocation.MonkeyAction == "start") || (invocation.Kind == Explore && invocation.Action == "start")
+			if !starting {
+				return fmt.Errorf("unknown flag \"--%s\"", name)
+			}
 		default:
 			return fmt.Errorf("unknown flag \"--%s\"", name)
+		}
+	}
+	if (invocation.Kind == Monkey && invocation.MonkeyAction == "start") || (invocation.Kind == Explore && invocation.Action == "start") {
+		if err := applyTraversalFlags(invocation, flags); err != nil {
+			return err
 		}
 	}
 	if packageRequired {
@@ -350,6 +360,98 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 		return fmt.Errorf("--duration is required")
 	}
 	return nil
+}
+
+func applyTraversalFlags(invocation *Invocation, flags map[string]string) error {
+	invocation.ThrottleMillis = 500
+	invocation.RenderFallbackMode = "bounded"
+	invocation.LowBatteryExit = true
+	invocation.MinBattery = 15
+	invocation.ActivityMode = "none"
+	if value, ok := flags["throttle"]; ok {
+		millis, err := strconv.Atoi(value)
+		if err != nil || millis < 100 || millis > 60000 {
+			return fmt.Errorf("--throttle must be between 100 and 60000 milliseconds")
+		}
+		invocation.ThrottleMillis = millis
+	}
+	if value, ok := flags["render"]; ok {
+		switch value {
+		case "off", "bounded", "continuous":
+			invocation.RenderFallbackMode = value
+		default:
+			return fmt.Errorf("--render must be off, bounded, or continuous")
+		}
+	}
+	if value, ok := flags["min-battery"]; ok {
+		percent, err := strconv.Atoi(value)
+		if err != nil || percent < 0 || percent > 100 {
+			return fmt.Errorf("--min-battery must be 0 or between 1 and 100")
+		}
+		invocation.LowBatteryExit = percent > 0
+		invocation.MinBattery = percent
+	}
+	if flags["low-battery"] == "true" {
+		invocation.LowBatteryExit = true
+		if invocation.MinBattery == 0 {
+			invocation.MinBattery = 15
+		}
+	}
+	if value, ok := flags["activity-mode"]; ok {
+		switch value {
+		case "none", "allowlist", "blocklist":
+			invocation.ActivityMode = value
+		default:
+			return fmt.Errorf("--activity-mode must be none, allowlist, or blocklist")
+		}
+	}
+	invocation.Activities = splitList(flags["activities"])
+	invocation.ControlBlacklist = splitList(flags["control-blacklist"])
+	cases, err := parseTargetCases(flags["target-cases"])
+	if err != nil {
+		return err
+	}
+	invocation.TargetCases = cases
+	if (invocation.ActivityMode == "allowlist" || invocation.ActivityMode == "blocklist") && len(invocation.Activities) == 0 {
+		return fmt.Errorf("--activities is required when --activity-mode is %s", invocation.ActivityMode)
+	}
+	return nil
+}
+
+func splitList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return []string{}
+	}
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == '，' })
+	items := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return items
+}
+
+func parseTargetCases(value string) ([]TargetCase, error) {
+	if strings.TrimSpace(value) == "" {
+		return []TargetCase{}, nil
+	}
+	parts := strings.FieldsFunc(value, func(r rune) bool { return r == ';' || r == '；' })
+	cases := make([]TargetCase, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		equals := strings.Index(part, "=")
+		slash := strings.LastIndex(part, "/")
+		if equals < 1 || slash <= equals+1 || slash == len(part)-1 {
+			return nil, fmt.Errorf("--target-cases entries must use Activity=任务/用例")
+		}
+		cases = append(cases, TargetCase{Activity: strings.TrimSpace(part[:equals]), Task: strings.TrimSpace(part[equals+1 : slash]), Case: strings.TrimSpace(part[slash+1:])})
+	}
+	return cases, nil
 }
 
 func applyOptionalPackage(invocation *Invocation, flags map[string]string) error {

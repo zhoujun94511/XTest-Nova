@@ -36,6 +36,50 @@ func TestCoordinatorFencesStaleOwner(t *testing.T) {
 	}
 }
 
+func TestHostedReplayKeepsParentOwner(t *testing.T) {
+	coordinator := NewCoordinator()
+	parent, err := coordinator.Acquire("exploration", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted, err := coordinator.AcquireHosted(parent, "replay", "case-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = coordinator.Acquire("other", "other"); !errors.Is(err, ErrOwned) {
+		t.Fatalf("hosted replay released the device: %v", err)
+	}
+	if err = coordinator.Validate(hosted.SessionID, hosted.OwnerToken); err != nil {
+		t.Fatal(err)
+	}
+	if !coordinator.Release(hosted) {
+		t.Fatal("hosted replay did not release")
+	}
+	if coordinator.Release(parent) == false {
+		t.Fatal("parent did not release after the hosted replay")
+	}
+	if _, err = coordinator.Acquire("other", "other"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestParentReleaseDropsHostedReplay(t *testing.T) {
+	coordinator := NewCoordinator()
+	parent, err := coordinator.Acquire("exploration", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = coordinator.AcquireHosted(parent, "replay", "case-1"); err != nil {
+		t.Fatal(err)
+	}
+	if !coordinator.Release(parent) {
+		t.Fatal("parent release stayed blocked by the hosted replay")
+	}
+	if _, err = coordinator.Acquire("other", "other"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestReceiptStoreIsIdempotent(t *testing.T) {
 	store := NewReceiptStore()
 	input := ActionReceipt{StepID: "s1", ObservationID: "o1", SourceFingerprint: "page", ActionFingerprint: "tap"}

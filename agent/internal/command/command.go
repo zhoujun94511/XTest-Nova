@@ -37,21 +37,35 @@ const (
 )
 
 type Invocation struct {
-	Kind            Kind
-	Daemon          bool
-	Stop            bool
-	JSON            bool
-	PopupAction     string
-	MonkeyAction    string
-	Action          string
-	PackageName     string
-	DurationSeconds int
-	Name            string
-	Task            string
-	Execute         bool
-	TargetPath      string
-	DestPath        string
-	ServerArgs      []string
+	Kind               Kind
+	Daemon             bool
+	Stop               bool
+	JSON               bool
+	PopupAction        string
+	MonkeyAction       string
+	Action             string
+	PackageName        string
+	DurationSeconds    int
+	Name               string
+	Task               string
+	Execute            bool
+	ThrottleMillis     int
+	RenderFallbackMode string
+	LowBatteryExit     bool
+	MinBattery         int
+	ActivityMode       string
+	Activities         []string
+	ControlBlacklist   []string
+	TargetCases        []TargetCase
+	TargetPath         string
+	DestPath           string
+	ServerArgs         []string
+}
+
+type TargetCase struct {
+	Activity string `json:"activity"`
+	Task     string `json:"task,omitempty"`
+	Case     string `json:"case"`
 }
 
 func Parse(args []string) (Invocation, error) {

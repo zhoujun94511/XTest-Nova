@@ -20,10 +20,10 @@ var externalRiskMarkers = []string{
 }
 
 func selectAction(node *graphNode, seed int64, enableScroll, recoverPopups bool) (Action, bool) {
-	return selectActionBlocked(node, seed, enableScroll, recoverPopups, nil)
+	return selectActionBlocked(node, seed, enableScroll, recoverPopups, nil, nil, nil)
 }
 
-func selectActionBlocked(node *graphNode, seed int64, enableScroll, recoverPopups bool, blocked func(Action) bool) (Action, bool) {
+func selectActionBlocked(node *graphNode, seed int64, enableScroll, recoverPopups bool, blocked func(Action) bool, memory *activityMemory, visited map[string]struct{}) (Action, bool) {
 	candidates := make([]Action, 0, len(node.analysis.Actions))
 	for _, action := range node.analysis.Actions {
 		if !node.tried[action.ID] && (action.Type != "swipe" || enableScroll) && (blocked == nil || !blocked(action)) {
@@ -53,8 +53,8 @@ func selectActionBlocked(node *graphNode, seed int64, enableScroll, recoverPopup
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		leftWeight := actionWeightForNode(node, candidates[i], recoverPopups)
-		rightWeight := actionWeightForNode(node, candidates[j], recoverPopups)
+		leftWeight := actionWeight(node, candidates[i], recoverPopups, memory, visited)
+		rightWeight := actionWeight(node, candidates[j], recoverPopups, memory, visited)
 		leftRank := weightedActionRank(seed+int64(len(node.tried)), candidates[i].ID, leftWeight)
 		rightRank := weightedActionRank(seed+int64(len(node.tried)), candidates[j].ID, rightWeight)
 		return leftRank < rightRank
@@ -66,6 +66,10 @@ func selectActionBlocked(node *graphNode, seed int64, enableScroll, recoverPopup
 }
 
 func actionWeightForNode(node *graphNode, action Action, recoverPopups bool) float64 {
+	return actionWeight(node, action, recoverPopups, nil, nil)
+}
+
+func actionWeight(node *graphNode, action Action, recoverPopups bool, memory *activityMemory, visited map[string]struct{}) float64 {
 	if recoverPopups && action.Recovery {
 		return 1000
 	}
@@ -88,7 +92,22 @@ func actionWeightForNode(node *graphNode, action Action, recoverPopups bool) flo
 			break
 		}
 	}
-	return weight / math.Sqrt(float64(node.actionAttempts[action.ID]+1))
+	weight /= math.Sqrt(float64(node.actionAttempts[action.ID] + 1))
+	return weight * rememberedActionFactor(memory, visited, action)
+}
+
+func rememberedActionFactor(memory *activityMemory, visited map[string]struct{}, action Action) float64 {
+	if memory == nil || action.Backtrack || action.Type == "back" {
+		return 1
+	}
+	known, unseen := memory.unseenFraction(semanticActionKey(action), visited)
+	if !known {
+		return 2.1
+	}
+	if unseen > 0 {
+		return 1 + unseen
+	}
+	return 0.55
 }
 
 func weightedActionRank(seed int64, id string, weight float64) float64 {

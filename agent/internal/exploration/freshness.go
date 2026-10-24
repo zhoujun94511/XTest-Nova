@@ -14,7 +14,7 @@ const (
 // accessibility dump for every coverage-oriented action.
 func (m *Manager) validateObservation(ctx context.Context, config Config, expectedActivity, expectedFingerprint string, rules Rules) (string, error) {
 	if config.FreshnessMode == freshnessStrict {
-		foreground, activity, hierarchy, err := m.capture(ctx)
+		foreground, activity, _, hierarchy, err := m.capture(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -32,7 +32,7 @@ func (m *Manager) validateObservation(ctx context.Context, config Config, expect
 		return fingerprint, nil
 	}
 
-	foreground, activity, err := m.currentForeground(ctx)
+	foreground, activity, _, err := m.currentForeground(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -44,7 +44,7 @@ func (m *Manager) validateObservation(ctx context.Context, config Config, expect
 
 func (m *Manager) validateSpecialObservation(ctx context.Context, config Config, expected SpecialEvent, expectedActivity string) (string, error) {
 	if config.FreshnessMode == freshnessStrict {
-		foreground, activity, hierarchy, err := m.capture(ctx)
+		foreground, activity, _, hierarchy, err := m.capture(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -58,7 +58,7 @@ func (m *Manager) validateSpecialObservation(ctx context.Context, config Config,
 		return actual.Fingerprint, nil
 	}
 
-	foreground, activity, err := m.currentForeground(ctx)
+	foreground, activity, _, err := m.currentForeground(ctx)
 	if err != nil {
 		return "", err
 	}

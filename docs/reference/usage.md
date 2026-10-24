@@ -23,9 +23,9 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 | 前台应用 | `xtest-nova-agent foreground` | 输出当前前台包名 |
 | 应用 | `xtest-nova-agent apps list`、`info <包名>`、`launch <包名>` | 列出、查看或启动应用 |
 | 截图 | `xtest-nova-agent screenshot <文件>` | 把当前屏幕 PNG 写到 `/data/local/tmp`、`/sdcard` 或 `/storage/emulated/0` |
-| 启动 Monkey | `xtest-nova-agent monkey start --package <包名> --duration <秒>` | 按现有 Monkey 接口启动，间隔使用 500 毫秒 |
+| 启动 Monkey | `xtest-nova-agent monkey start --package <包名> --duration <秒>` | 启动同一次遍历会话。未写可选参数时，间隔 500 毫秒、纯渲染策略有界、低电量 15% 停止、活动范围不限制 |
 | Monkey 结论 | `xtest-nova-agent monkey report` | 输出本次运行的通过 / 失败 / 未测结论 |
-| 探索 | `xtest-nova-agent explore preview`、`start`、`status`、`stop` | `start` 必须带 `--package`；只有再带 `--execute` 才会点击。不带 `--execute` 时，`--json` 会带 `previewOnly: true` |
+| 探索 | `xtest-nova-agent explore preview`、`start`、`status`、`stop` | `start` 必须带 `--package`；只有再带 `--execute` 才会点击。不带 `--execute` 时，`--json` 会带 `previewOnly: true`。执行时使用与 Monkey 相同的间隔、渲染、低电量和范围参数；不写 `--duration` 时按步数结束，默认 100 步 |
 | 录制 | `xtest-nova-agent record start`、`status`、`stop`、`cases` | `start` 需要 `--package` 和 `--name` |
 | 回放 | `xtest-nova-agent replay start`、`status`、`stop` | `start` 需要 `--package`、`--name` 和 `--execute` |
 | 性能 | `xtest-nova-agent perf start`、`status`、`stop` | `start` 需要 `--package` |
@@ -33,6 +33,23 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 | 归档 | `xtest-nova-agent pull <目录> <文件>` | 把允许路径下的目录打成 zip 再写到允许路径 |
 
 这些命令都在设备上执行，并访问本机 `127.0.0.1:7912`。电脑上的调用方式是 `adb shell /data/local/tmp/xtest-nova-agent <子命令>`。停止 Monkey、探索、录制、回放和性能时会先读取当前会话身份，再带上会话头；输出里不包含 owner token。加上 `--json` 时输出去掉令牌后的接口 JSON。命令不提供远控画面，也不调用 `/shell` 或会关闭 Agent 的 `/stop`。
+
+命令行、Web 控制台和悬浮窗启动的是同一次设备会话，不按入口分优先级。已经在运行、停止或收尾的会话保持不变；后到的启动返回冲突，不会排队，也不会把正在执行的遍历换掉。任一入口都可以查询当前会话并停止它。停止会等到当前目标页回放的输入结束，最长 120 秒。
+
+`monkey start` 与带 `--execute` 的 `explore start` 还可使用：
+
+| 参数 | 含义 | 缺省 |
+|------|------|------|
+| `--throttle <毫秒>` | 两次动作之间的固定间隔，范围 100–60000 | 500 |
+| `--render off\|bounded\|continuous` | 没有控件的 Surface/Unity 页面是否做坐标点击。`bounded` 每个 Activity 最多 5 次，`continuous` 不设这个次数 | `bounded` |
+| `--min-battery <百分比>` | 电量不高于该值时停止。`0` 关闭低电量停止 | 15，且启用低电量停止 |
+| `--activity-mode none\|allowlist\|blocklist` | 活动范围。后两种必须再写 `--activities` | `none` |
+| `--activities <列表>` | Activity 列表，逗号分隔。悬浮窗选择器里的 `.类名` 可以直接使用 | 空 |
+| `--control-blacklist <列表>` | 跳过文本、描述或资源 ID 中包含这些片段的候选控件，逗号分隔 | 空 |
+| `--target-cases <映射>` | `Activity=任务/用例`，多条用分号或中文分号分隔。用例必须已经录制并签名 | 空 |
+| `--duration <秒>` | 墙钟时长，范围 1–604800。设置后步数到上限也不会提前结束 | Monkey 必填；探索可不写 |
+
+探索不写 `--duration` 时，`maxSteps` 为 0 会按 100 步结束，允许范围 1–10000。Web 控制台只保留一个遍历入口。页面上填写运行时长和动作间隔，间隔默认 500 毫秒、范围 50–60000；低电量 15% 停止可以勾选。有界渲染和空的活动范围仍随请求发出。命令行和悬浮窗仍可填写这些约束。接口省略间隔时仍默认 250 毫秒。
 
 `server -d --stop` 明确定义为停止，不隐式重启。需要重启时先执行停止命令，再执行
 `server -d`，避免升级脚本出现双进程竞态。只推送二进制文件不会安装或启动任何 APK；执行

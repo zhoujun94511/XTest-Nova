@@ -28,13 +28,21 @@
   "requestId": "regression-001",
   "package": "com.example.app",
   "maxSteps": 100,
-  "intervalMillis": 750,
+  "durationSeconds": 0,
+  "intervalMillis": 500,
   "seed": 20260903,
   "execute": true,
   "enableScroll": true,
   "enableBacktrack": true,
   "recoverPopups": true,
   "maxBacktracks": 20,
+  "activityMode": "none",
+  "activities": [],
+  "controlBlacklist": [],
+  "renderFallbackMode": "bounded",
+  "lowBatteryExit": true,
+  "minBatteryPercent": 15,
+  "targetCases": [],
   "specialHandling": {
     "mode": "safe",
     "consentPolicy": "accept",
@@ -55,7 +63,9 @@
 }
 ```
 
-`execute=true` 是强制条件，避免把预览请求误当成执行请求。相同 `requestId` 且规范化配置完全一致时幂等返回原会话；同一 `requestId` 携带不同包、步数或策略时返回冲突。已有其他会话运行时同样返回冲突。
+`execute=true` 是强制条件，避免把预览请求误当成执行请求。相同 `requestId` 且规范化配置完全一致时幂等返回原会话；同一 `requestId` 携带不同包、步数或策略时返回冲突。已有遍历、随机运行、录制或回放处于运行、停止或收尾时同样返回冲突，后到的请求不替换当前会话。
+
+`durationSeconds` 为 0 时没有墙钟限制；此时 `maxSteps` 省略则按 100 步结束，允许 1–10000，停止原因为 `max_steps`。时长为 1–604800 秒时，步数不再作为停止条件，时间到达后以 `duration_elapsed` 结束。省略 `intervalMillis` 时接口默认 250 毫秒。命令行和悬浮窗会显式发送 500 毫秒，并带上活动范围、控件跳过、低电量、纯渲染策略和目标页用例。Web 控制台的遍历入口发送页面上的动作间隔；未改时为 500 毫秒。低电量 15% 停止可勾选，勾选时带上 `lowBatteryExit=true` 和 `minBatteryPercent=15`。`targetCases` 非空时，启动前按 Monkey 的规则准备已签名用例；准备失败则会话不会开始。字段含义、片段匹配和同时启动的冲突规则见 [Monkey 高级策略 API](monkey-api.md)。
 
 ## 查询与停止
 
@@ -75,7 +85,7 @@
 - 系统界面和其他包节点不会进入候选集；
 - 内置过滤卸载、删除、付款、购买、清除数据、恢复出厂及格式化等中英文危险词；
 - 客户端可以增加拒绝词或配置允许文本/资源前缀，但不能关闭内置危险词；
-- 会话具有最大步数和最小动作间隔，离开目标包或输入失败时立即停止；
+- 未设置时长时，会话有最大步数；设置时长后只按墙钟结束。动作间隔有下限。离开目标包时按恢复预算处理，输入失败仍会停止；
 - 智能遍历与随机 Runner 互斥，UiAutomator 页面抓取在 Agent 内串行化；
 - 滚动和回溯均需显式启用；向前滚动使用同坐标反向滑动恢复；
 - 系统返回键只用于由已记录点击边进入的子状态，且受 `maxBacktracks` 限制；
@@ -90,7 +100,7 @@
 - 特殊页面连续处理后未变化时受 `maxAttempts` 限制，并返回 `special_handling_failed`；策略设为 `pause` 时返回 `policy_required`。
 - 全屏广告按开屏、插屏、激励视频和可试玩广告使用独立等待预算；显式关闭节点优先，随后才使用已知广告 Activity 的角落关闭候选与有界 Back。
 - 广告 WebView 即使持续刷新文本和页面指纹，关闭尝试仍绑定同一次广告遭遇，不会借动态内容重置上限。
-- 智能探索和 Runner 运行期间 Companion 触摸层会被移除，避免覆盖右上角广告关闭键；会话完成后恢复主菜单。空闲时手动最小化为贴右边缘的低显著窄把手，不进入 UiAutomator/无障碍探索树，普通单击不会展开，需长按恢复菜单。
+- 遍历运行期间，悬浮窗收成边缘手柄，避免挡住页面控件；任务结束后从手柄恢复主菜单。点击手柄没有动作，长按手柄区域才展开。空闲时手动最小化同样贴在右边缘，不进入 UiAutomator/无障碍探索树。录制仍使用自己的录制表面。
 - 状态接口通过 `adEncounters`、`adCloseActions`、`adBackFallbacks`、`adExternalRecoveries`、`adRecoveries`、`adWaitMillis`、`lastAdType` 和 `lastAdPhase` 记录广告恢复过程。
 
 ## M3.3 A/B 评估

@@ -58,13 +58,16 @@ final class AgentClient {
         rememberMonkeyIdentity(response);
         return response;
     }
+    static String explorationState() throws IOException {
+        return request(PRIMARY, "GET", "/v1/exploration/sessions/current", null);
+    }
     static String monkeyState() throws IOException {
         String response = request(COMPANION, "GET", "/monkey", null);
         rememberMonkeyIdentity(response);
         return response;
     }
     static String monkeyStop() throws IOException {
-        String response = request(COMPANION, "DELETE", "/monkey", null, monkeySessionId, monkeyOwnerToken);
+        String response = request(COMPANION, "DELETE", "/monkey", null, monkeySessionId, monkeyOwnerToken, 120000);
         monkeySessionId = "";
         monkeyOwnerToken = "";
         return response;

@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -126,11 +127,45 @@ func TestMonkeyStartPostsDuration(t *testing.T) {
 	if err := Run(context.Background(), invocation, server.URL, server.Client(), &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, `"durationSeconds":30`) || !strings.Contains(body, `"throttleMillis":500`) {
+	if !strings.Contains(body, `"durationSeconds":30`) || !strings.Contains(body, `"throttleMillis":500`) || !strings.Contains(body, `"renderFallbackMode":"bounded"`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 	if strings.Contains(output.String(), "hidden") {
 		t.Fatalf("token leaked: %s", output.String())
+	}
+}
+
+func TestTraversalStartFlagsMatchOverlayDefaults(t *testing.T) {
+	invocation, err := Parse([]string{
+		"monkey", "start", "--package", "com.example.app", "--duration", "30",
+		"--throttle", "800", "--render", "continuous", "--activity-mode", "allowlist",
+		"--activities", ".FeedActivity,.MineActivity", "--control-blacklist", "ad_button",
+		"--target-cases", ".FeedActivity=smoke/open；.MineActivity=smoke/open",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !invocation.LowBatteryExit || invocation.MinBattery != 15 || invocation.ThrottleMillis != 800 || invocation.RenderFallbackMode != "continuous" {
+		t.Fatalf("defaults/flags = %#v", invocation)
+	}
+	if len(invocation.Activities) != 2 || len(invocation.ControlBlacklist) != 1 || len(invocation.TargetCases) != 2 || invocation.TargetCases[1].Task != "smoke" {
+		t.Fatalf("lists = %#v", invocation)
+	}
+	body, err := json.Marshal(monkeyStartBody(invocation))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`"lowBatteryExit":true`, `"minBatteryPercent":15`, `"activityMode":"allowlist"`, `"throttleMillis":800`, `"renderFallbackMode":"continuous"`} {
+		if !strings.Contains(string(body), fragment) {
+			t.Fatalf("body %s missing %s", body, fragment)
+		}
+	}
+	disabled, err := Parse([]string{"explore", "start", "--package", "com.example.app", "--min-battery", "0", "--render", "off"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.LowBatteryExit || disabled.RenderFallbackMode != "off" || disabled.ThrottleMillis != 500 {
+		t.Fatalf("explore flags = %#v", disabled)
 	}
 }
 

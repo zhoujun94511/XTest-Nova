@@ -122,11 +122,7 @@ func (r *cliRunner) monkey(ctx context.Context, invocation Invocation) error {
 	case "report":
 		return r.showJSON(ctx, http.MethodGet, "/v1/monkey/report", nil, formatVerdict)
 	case "start":
-		body, err := json.Marshal(map[string]any{
-			"package":         invocation.PackageName,
-			"durationSeconds": invocation.DurationSeconds,
-			"throttleMillis":  500,
-		})
+		body, err := json.Marshal(monkeyStartBody(invocation))
 		if err != nil {
 			return err
 		}
@@ -151,10 +147,7 @@ func (r *cliRunner) explore(ctx context.Context, invocation Invocation) error {
 			_, err := fmt.Fprintln(r.output, "execute is not set; preview only")
 			return err
 		}
-		body, err := json.Marshal(map[string]any{
-			"package": invocation.PackageName, "execute": true,
-			"enableScroll": true, "enableBacktrack": true, "recoverPopups": true,
-		})
+		body, err := json.Marshal(exploreStartBody(invocation))
 		if err != nil {
 			return err
 		}
@@ -165,6 +158,65 @@ func (r *cliRunner) explore(ctx context.Context, invocation Invocation) error {
 		return r.stopOwned(ctx, "/v1/exploration/sessions/current")
 	default:
 		return fmt.Errorf("unsupported explore action %q", invocation.Action)
+	}
+}
+
+func monkeyStartBody(invocation Invocation) map[string]any {
+	body := traversalGuardBody(invocation)
+	body["package"] = invocation.PackageName
+	body["durationSeconds"] = invocation.DurationSeconds
+	body["throttleMillis"] = throttleOrDefault(invocation.ThrottleMillis)
+	return body
+}
+
+func exploreStartBody(invocation Invocation) map[string]any {
+	body := traversalGuardBody(invocation)
+	body["package"] = invocation.PackageName
+	body["execute"] = true
+	body["enableScroll"] = true
+	body["enableBacktrack"] = true
+	body["recoverPopups"] = true
+	body["durationSeconds"] = invocation.DurationSeconds
+	body["intervalMillis"] = throttleOrDefault(invocation.ThrottleMillis)
+	return body
+}
+
+func throttleOrDefault(millis int) int {
+	if millis == 0 {
+		return 500
+	}
+	return millis
+}
+
+func traversalGuardBody(invocation Invocation) map[string]any {
+	mode := invocation.ActivityMode
+	if mode == "" {
+		mode = "none"
+	}
+	render := invocation.RenderFallbackMode
+	if render == "" {
+		render = "bounded"
+	}
+	activities := invocation.Activities
+	if activities == nil {
+		activities = []string{}
+	}
+	blocked := invocation.ControlBlacklist
+	if blocked == nil {
+		blocked = []string{}
+	}
+	cases := invocation.TargetCases
+	if cases == nil {
+		cases = []TargetCase{}
+	}
+	return map[string]any{
+		"renderFallbackMode": render,
+		"lowBatteryExit":     invocation.LowBatteryExit,
+		"minBatteryPercent":  invocation.MinBattery,
+		"activityMode":       mode,
+		"activities":         activities,
+		"controlBlacklist":   blocked,
+		"targetCases":        cases,
 	}
 }
 

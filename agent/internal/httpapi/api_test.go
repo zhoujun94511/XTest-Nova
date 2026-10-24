@@ -694,8 +694,7 @@ func TestConsolePreservesMutationAndReloadStopContracts(t *testing.T) {
 	}
 	appScript := string(app)
 	for _, marker := range []string{
-		"if (!model.monkeyState) await refreshMonkey(true)",
-		"if (!model.explorationState) await refreshExploration(true)",
+		"if (!model.traversalState) await refreshTraversal(true)",
 		"if (!model.recordState) await refreshRecordReplay('record', true)",
 		"if (!model.replayState) await refreshRecordReplay('replay', true)",
 		"if (!model.performanceState) await refreshPerformance(true)",
@@ -849,12 +848,15 @@ func TestEmbeddedConsole(t *testing.T) {
 			t.Fatalf("%s returned %d", path, response.Code)
 		}
 		if path == "/" {
-			for _, label := range []string{"概览", "应用", "自动化", "性能", "产物", "诊断", "随机遍历", "智能探索", "录制与回放"} {
+			if strings.Contains(response.Body.String(), "随机遍历") || strings.Contains(response.Body.String(), "智能探索") || !strings.Contains(response.Body.String(), `id="traversal-duration"`) || !strings.Contains(response.Body.String(), `id="traversal-interval"`) || !strings.Contains(response.Body.String(), `id="traversal-low-battery"`) {
+				t.Fatal("console still exposes two traversal workflows")
+			}
+			for _, label := range []string{"概览", "应用", "自动化", "性能", "产物", "诊断", "遍历", "录制与回放"} {
 				if !strings.Contains(response.Body.String(), label) {
 					t.Fatalf("console is missing %q workflow", label)
 				}
 			}
-			for _, asset := range []string{`href="assets/css/foundation.css?v=2"`, `href="assets/css/shell.css?v=4"`, `src="assets/js/core.js?v=2"`, `src="assets/js/renderers.js?v=4"`, `src="assets/js/package-selector.js?v=3"`, `src="assets/js/remote-control.js?v=2"`, `src="assets/js/performance.js?v=2"`, `src="assets/media/placeholder.svg?v=2"`} {
+			for _, asset := range []string{`href="assets/css/foundation.css?v=2"`, `href="assets/css/shell.css?v=4"`, `src="assets/js/core.js?v=3"`, `src="assets/js/renderers.js?v=4"`, `src="assets/js/package-selector.js?v=3"`, `src="assets/js/remote-control.js?v=2"`, `src="assets/js/performance.js?v=2"`, `src="assets/media/placeholder.svg?v=2"`} {
 				if !strings.Contains(response.Body.String(), asset) {
 					t.Fatalf("console is missing relative asset %q", asset)
 				}

@@ -33,6 +33,66 @@ func TestForegroundPackageUsesWindow(t *testing.T) {
 	}
 }
 
+func TestForegroundFocusReadsRelayoutSequence(t *testing.T) {
+	service := New(fakeExecutor{values: map[string]string{
+		"dumpsys window windows": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}\n" +
+			"  Window #4 Window{bbbb u0 com.android.systemui}:\n    mSeq=3\n" +
+			"  Window #3 Window{a1b2 u0 com.example/com.example.MainActivity}:\n    mSeq=17\n",
+	}}, time.Second)
+	component, version, err := service.ForegroundFocus(context.Background())
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "17" {
+		t.Fatalf("focus = %q %q, %v", component, version, err)
+	}
+}
+
+func TestForegroundFocusReadsSequenceFromFullWindowDump(t *testing.T) {
+	service := New(fakeExecutor{values: map[string]string{
+		"dumpsys window windows": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
+		"dumpsys window": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}\n" +
+			"  Window #3 Window{a1b2 u0 com.example/com.example.MainActivity}:\n    mSeq=21\n",
+	}}, time.Second)
+	component, version, err := service.ForegroundFocus(context.Background())
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "21" {
+		t.Fatalf("focus = %q %q, %v", component, version, err)
+	}
+}
+
+func TestForegroundFocusReadsSequenceForResumedActivity(t *testing.T) {
+	service := New(fakeExecutor{values: map[string]string{
+		"dumpsys window windows": "mCurrentFocus=null\n" +
+			"  Window #2 Window{abc u0 com.example.target/com.example.Main}:\n    mSeq=9\n",
+		"dumpsys activity activities": "topResumedActivity=ActivityRecord{231359804 u0 com.example.target/com.example.Main t3657}",
+	}}, time.Second)
+	component, version, err := service.ForegroundFocus(context.Background())
+	if err != nil || component != "com.example.target/com.example.Main" || version != "9" {
+		t.Fatalf("focus = %q %q, %v", component, version, err)
+	}
+}
+
+func TestForegroundFocusPrefersResumedActivity(t *testing.T) {
+	service := New(fakeExecutor{values: map[string]string{
+		"dumpsys window windows": "mResumedActivity: ActivityRecord{11 u0 com.example/.MainActivity t1}\n" +
+			"mCurrentFocus=Window{ime u0 com.android.inputmethod/.Keyboard}\n" +
+			"  Window #1 Window{ime u0 com.android.inputmethod/com.android.inputmethod.Keyboard}:\n    mSeq=3\n" +
+			"  Window #2 Window{app u0 com.example/com.example.MainActivity}:\n    mSeq=17\n",
+	}}, time.Second)
+	component, version, err := service.ForegroundFocus(context.Background())
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "17" {
+		t.Fatalf("focus = %q %q, %v", component, version, err)
+	}
+}
+
+func TestForegroundFocusContinuesWithoutRelayoutSequence(t *testing.T) {
+	service := New(fakeExecutor{values: map[string]string{
+		"dumpsys window windows": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
+		"dumpsys window":         "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
+	}}, time.Second)
+	component, version, err := service.ForegroundFocus(context.Background())
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "" {
+		t.Fatalf("focus = %q %q, %v", component, version, err)
+	}
+}
+
 func TestForegroundActivityCanonicalizesRelativeClass(t *testing.T) {
 	service := New(fakeExecutor{values: map[string]string{
 		"dumpsys window windows": "mCurrentFocus=Window{123 u0 com.example/.MainActivity}",

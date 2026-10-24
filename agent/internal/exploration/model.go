@@ -20,8 +20,10 @@ var digitsPattern = regexp.MustCompile(`\d+`)
 var defaultDeniedText = []string{
 	"uninstall", "delete", "remove", "factory reset", "clear data", "format",
 	"install", "download", "get app", "play store", "app store",
+	"customer service", "contact us", "feedback", "help center",
 	"卸载", "删除", "移除", "恢复出厂", "清除数据", "格式化",
 	"安装", "下载", "获取应用", "应用商店",
+	"客服", "意见反馈", "问题反馈", "联系客服", "反馈",
 }
 var defaultRecoveryText = []string{"取消", "稍后", "以后再说", "跳过", "继续等待", "cancel", "not now", "later", "skip", "wait"}
 var sensitiveInputText = []string{
