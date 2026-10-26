@@ -20,8 +20,10 @@ const (
 type adScene struct{ Type, Phase string }
 
 var adMarkers = []string{"advertisement", "sponsored", "skip ad", "close ad", "广告", "跳过广告"}
+var explicitInAppAdDismissText = []string{"skip ad", "close ad", "关闭广告", "跳过广告", "interstitial close"}
+var explicitInAppAdDismissResources = []string{"interstitial_close", "ad_close", "close_ad"}
 var adActivityMarkers = []string{
-	"com.google.android.gms.ads.adactivity", "com.bytedance.sdk.openadsdk.activity.", "com.qq.e.ads.",
+	"com.google.android.gms.ads.adactivity", "com.facebook.ads.", "com.bytedance.sdk.openadsdk.activity.", "com.qq.e.ads.",
 	"com.applovin.adview.", "com.unity3d.services.ads.adunit.", "com.ironsource.sdk.controller.",
 	"com.inmobi.ads.rendering.", "com.mbridge.msdk.", "com.vungle.ads.", "com.chartboost.sdk.",
 	"com.sigmob.sdk.", "sg.bigo.ads.", "com.huawei.openalliance.ad.", "com.miui.systemadsolution.",
@@ -60,22 +62,6 @@ func classifyAdScene(activity, pageText string) adScene {
 		scene.Phase = adPhaseClose
 	}
 	return scene
-}
-
-func adWaitLimitSeconds(adType string, configuredMaximum int) int {
-	limit := 20
-	switch adType {
-	case adTypeAppOpen:
-		limit = 15
-	case adTypePlayable:
-		limit = 45
-	case adTypeRewarded:
-		limit = 75
-	}
-	if configuredMaximum > 0 && configuredMaximum < limit {
-		return configuredMaximum
-	}
-	return limit
 }
 
 func isEmbeddedAdContainer(resourceID, description, className string) bool {
@@ -204,6 +190,66 @@ func findAdCornerAction(nodes []specialNode, foreground string) (Action, bool) {
 	x, y := bounds.Center()
 	sum := sha256.Sum256([]byte(strings.Join([]string{"ad-corner", foreground, best.ResourceID, best.Class, best.Bounds}, "|")))
 	return Action{ID: hex.EncodeToString(sum[:8]), Type: "tap", X: x, Y: y, Text: best.Text, Description: firstNonEmpty(best.Description, "top-corner ad dismiss control"), ResourceID: best.ResourceID, Class: best.Class, Bounds: bounds}, true
+}
+
+func adPostWaitCornerAction(nodes []specialNode, foreground string) (Action, bool) {
+	viewport, ok := specialViewport(nodes, foreground)
+	if !ok {
+		return Action{}, false
+	}
+	width, height := viewport.Right-viewport.Left, viewport.Bottom-viewport.Top
+	if width < 400 || height < 600 {
+		return Action{}, false
+	}
+	insetX := width / 14
+	if insetX < 36 {
+		insetX = 36
+	}
+	insetY := height * 7 / 100
+	if insetY < 96 {
+		insetY = 96
+	}
+	if insetY > 180 {
+		insetY = 180
+	}
+	sum := sha256.Sum256([]byte("ad-post-wait-corner|" + foreground))
+	return Action{
+		ID: hex.EncodeToString(sum[:8]), Type: "tap",
+		X: viewport.Right - insetX, Y: viewport.Top + insetY,
+		Description: "full-screen ad corner after the countdown",
+		SpecialKind: "ad", Policy: policyDismiss, Recovery: true,
+	}, true
+}
+
+func onScreenSpecialNodes(nodes []specialNode, foreground string) []specialNode {
+	viewport, ok := specialViewport(nodes, foreground)
+	if !ok {
+		return nodes
+	}
+	selected := make([]specialNode, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Package != "" && foreground != "" && node.Package != foreground {
+			continue
+		}
+		bounds, valid := parseBounds(node.Bounds)
+		if !valid || bounds.Left >= viewport.Right {
+			continue
+		}
+		x, y := bounds.Center()
+		if x < viewport.Left || x > viewport.Right || y < viewport.Top || y > viewport.Bottom {
+			continue
+		}
+		selected = append(selected, node)
+	}
+	return selected
+}
+
+func loadFailureAction(nodes []specialNode, foreground string) (Action, bool) {
+	visible := onScreenSpecialNodes(nodes, foreground)
+	if !containsAny(specialPageText(visible, foreground), loadFailureMarkers) {
+		return Action{}, false
+	}
+	return findSpecialAction(visible, foreground, loadRetryTargets, nil)
 }
 
 func specialViewport(nodes []specialNode, foreground string) (Bounds, bool) {

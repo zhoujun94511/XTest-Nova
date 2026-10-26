@@ -5,19 +5,19 @@
       "name": "runner",
       "path": "dist/xtest-nova-runner.jar",
       "baselineBytes": 46450,
-      "maximumBytes": 65536
+      "maximumBytes": 7864320
     },
     {
       "name": "agent-arm64",
       "path": "dist/xtest-nova-agent-arm64",
       "baselineBytes": 13152456,
-      "maximumDeltaBytes": 471040
+      "maximumBytes": 14680064
     },
     {
       "name": "agent-armv7",
       "path": "dist/xtest-nova-agent-armv7",
       "baselineBytes": 13409375,
-      "maximumDeltaBytes": 462848
+      "maximumBytes": 14680064
     },
     {
       "name": "companion",

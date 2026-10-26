@@ -15,7 +15,7 @@ func TestParseDeviceCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if invocation.Kind != Monkey || invocation.MonkeyAction != "start" || invocation.PackageName != "com.example.app" || invocation.DurationSeconds != 30 || !invocation.JSON {
+	if invocation.Kind != Monkey || invocation.MonkeyAction != "start" || invocation.PackageName != "com.example.app" || invocation.DurationSeconds != 60 || !invocation.JSON {
 		t.Fatalf("unexpected monkey start: %#v", invocation)
 	}
 	if _, err := Parse([]string{"explore", "start", "--package", "com.example.app"}); err != nil {
@@ -127,11 +127,50 @@ func TestMonkeyStartPostsDuration(t *testing.T) {
 	if err := Run(context.Background(), invocation, server.URL, server.Client(), &output); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, `"durationSeconds":30`) || !strings.Contains(body, `"throttleMillis":500`) || !strings.Contains(body, `"renderFallbackMode":"bounded"`) {
+	if !strings.Contains(body, `"durationSeconds":60`) || !strings.Contains(body, `"throttleMillis":500`) || !strings.Contains(body, `"renderFallbackMode":"bounded"`) {
 		t.Fatalf("unexpected body: %s", body)
 	}
 	if strings.Contains(output.String(), "hidden") {
 		t.Fatalf("token leaked: %s", output.String())
+	}
+}
+
+func TestMonkeyEngineSelectsRunnerOrExploration(t *testing.T) {
+	runnerStart, err := Parse([]string{"monkey", "start", "--package", "com.example.app", "--duration", "60", "--engine", "runner", "--throttle", "50"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runnerStart.Engine != "runner" || runnerStart.ThrottleMillis != 50 {
+		t.Fatalf("runner start = %#v", runnerStart)
+	}
+	body, err := json.Marshal(monkeyStartBody(runnerStart))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"engine":"runner"`) || !strings.Contains(string(body), `"throttleMillis":50`) {
+		t.Fatalf("runner body = %s", body)
+	}
+	if _, err := Parse([]string{"monkey", "start", "--package", "com.example.app", "--throttle", "50"}); err == nil {
+		t.Fatal("go exploration accepted a 50ms interval")
+	}
+	if _, err := Parse([]string{"explore", "start", "--package", "com.example.app", "--engine", "runner"}); err == nil {
+		t.Fatal("explore start accepted --engine")
+	}
+	status, err := Parse([]string{"monkey", "status", "--engine", "exploration"})
+	if err != nil || status.Engine != "exploration" {
+		t.Fatalf("status = %#v err=%v", status, err)
+	}
+	var path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.RequestURI()
+		_, _ = io.WriteString(w, `{"running":false,"finalizing":false}`)
+	}))
+	defer server.Close()
+	if err := Run(context.Background(), status, server.URL, server.Client(), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/v1/monkey/runs/current?engine=exploration" {
+		t.Fatalf("status path = %s", path)
 	}
 }
 

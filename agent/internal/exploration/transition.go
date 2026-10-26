@@ -50,12 +50,29 @@ func (m *Manager) recordPageLocked(config Config, analysis *Analysis, activity s
 		if fromNode := m.nodes[pendingStep.From]; fromNode != nil {
 			fromSemantic = fromNode.semantic
 		}
+		actionKey := semanticActionKey(pendingStep.Action)
 		if fromSemantic == currentSemantic {
 			m.state.IneffectiveActions++
+			if isVisibleBackControl(pendingStep.Action) && loop.pending > 0 {
+				previous := m.steps[loop.pending-1].Action
+				if previous.Type == "tap" && !isVisibleBackControl(previous) {
+					m.blockEdgeLocked(fromSemantic, semanticActionKey(previous))
+				}
+			}
+			if pendingStep.Action.Type == "swipe" && !pendingStep.Action.Backtrack {
+				if loop.samePageSwipes == nil {
+					loop.samePageSwipes = map[string]int{}
+				}
+				stallKey := fromSemantic + "\x00" + actionKey
+				loop.samePageSwipes[stallKey]++
+				if loop.samePageSwipes[stallKey] >= maxStableScrollAttempts {
+					m.blockEdgeLocked(fromSemantic, actionKey)
+				}
+			}
 		} else {
 			m.state.EffectiveActions++
 		}
-		actionKey := semanticActionKey(pendingStep.Action)
+		noteSemanticProgress(loop, currentSemantic, activity, fromSemantic != currentSemantic)
 		if pendingStep.Action.Backtrack {
 			actionKey = "backtrack"
 			expected := m.parents[pendingStep.From]
@@ -90,7 +107,7 @@ func (m *Manager) recordPageLocked(config Config, analysis *Analysis, activity s
 			} else {
 				m.blockEdgeLocked(fromSemantic, actionKey)
 			}
-			if armStallEscalation(currentSemantic, m.state.Steps, loop.escalationCooldownUntil, loop.escalationCoolState) {
+			if armStallEscalation(currentSemantic, time.Now(), loop.escalationCooldownUntil, loop.escalationCoolState) {
 				loop.escalationArmed = currentSemantic
 			}
 		}

@@ -27,11 +27,14 @@ func armStartupHold(loop *runLoop, now time.Time) {
 }
 
 func isAsyncStartupActivity(activity string) bool {
-	value := strings.ToLower(activity)
-	return strings.Contains(value, "splash") || strings.Contains(value, "startup") || strings.Contains(value, "launch") || strings.Contains(value, "loading")
+	name := activitySimpleName(activity)
+	if strings.Contains(name, "launcher") {
+		return false
+	}
+	return strings.Contains(name, "splash") || strings.Contains(name, "startup") || strings.Contains(name, "launch") || strings.Contains(name, "loading") || strings.Contains(name, "routing")
 }
 
-// pageGeneration is the activity and the focused window's relayout sequence.
+// pageGeneration is the activity and the focused window token.
 type pageGeneration struct {
 	activity      string
 	windowVersion string
@@ -39,8 +42,8 @@ type pageGeneration struct {
 
 // settleReady reports whether ordinary graph construction may proceed. The
 // deadline remains the upper bound. A new activity proceeds immediately. A new
-// relayout sequence proceeds only after the same sequence is seen twice, so a
-// single in-progress layout does not enter the graph.
+// window token proceeds only after the same token is seen twice, so one
+// transient focus change does not enter the graph. An empty token waits.
 func settleReady(now, until time.Time, baseline, previous, current pageGeneration) bool {
 	if until.IsZero() || !now.Before(until) {
 		return true
@@ -58,7 +61,7 @@ func settleReady(now, until time.Time, baseline, previous, current pageGeneratio
 }
 
 // observeStartup keeps an empty startup page out of the graph until its
-// activity or window relayout sequence changes, or the startup deadline passes.
+// activity changes or the startup deadline passes.
 func observeStartup(now, until time.Time, activity string, baseline *pageGeneration, released *bool, current pageGeneration) bool {
 	if released == nil || *released || !now.Before(until) || !isAsyncStartupActivity(activity) {
 		return false

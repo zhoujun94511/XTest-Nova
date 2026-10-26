@@ -22,8 +22,8 @@ final class SpecialHandler {
     private static final String[] BILLING_ERROR_TARGETS = {"ok", "got it", "知道了", "确定"};
     private static final String[] DISMISS_TARGETS = {"close", "dismiss", "not now", "no thanks", "later", "skip", "cancel", "x", "关闭", "稍后", "不了", "跳过", "取消", "暂不"};
     private static final String[] RESOLVER_MARKERS = {"open with", "complete action using", "just once", "打开方式", "仅此一次", "始终使用选择的应用程序"};
-    final Main.Config config;
-    final Main.ShellInput input;
+    final Config config;
+    final ShellInput input;
     final Map<String,Integer> attempts = new HashMap<>();
     final Map<String,Long> attemptAt = new HashMap<>();
     boolean adActive;
@@ -31,8 +31,101 @@ final class SpecialHandler {
     final Map<String,Long> adWaitStarted = new HashMap<>();
     boolean suppressRandom;
     boolean paywallContext;
+    static final long EXHAUSTION_BACK_MILLIS = 8_000L;
+    boolean exhaustionBackPending;
+    String exhaustionBackActivity = "";
+    long exhaustionBackUntil;
 
-    SpecialHandler(Main.Config config, Main.ShellInput input) { this.config = config; this.input = input; }
+    SpecialHandler(Config config, ShellInput input) { this.config = config; this.input = input; }
+
+    static SpecialHandler succeeding(SpecialHandler previous, Config config, ShellInput input) {
+        SpecialHandler next = new SpecialHandler(config, input);
+        if (previous != null) {
+            next.exhaustionBackPending = previous.exhaustionBackPending;
+            next.exhaustionBackActivity = previous.exhaustionBackActivity;
+            next.exhaustionBackUntil = previous.exhaustionBackUntil;
+        }
+        return next;
+    }
+
+    void noteExhaustionBack(String activity) {
+        exhaustionBackPending = true;
+        exhaustionBackActivity = activity == null ? "" : activity;
+        exhaustionBackUntil = System.currentTimeMillis() + EXHAUSTION_BACK_MILLIS;
+    }
+
+    /** The same page keeps the pending cold start until the clock expires. Another in-app page clears it. */
+    static boolean keepsExhaustionBack(String leftActivity, String currentActivity, long now, long until) {
+        if (now >= until) return false;
+        if (currentActivity == null || currentActivity.isEmpty()) return true;
+        return currentActivity.equals(leftActivity == null ? "" : leftActivity);
+    }
+
+    /** System home processes. Matched as a whole package, not as a name fragment. */
+    static final Set<String> SYSTEM_LAUNCHER_PACKAGES = new HashSet<>(Arrays.asList(
+            "com.android.launcher",
+            "com.android.launcher3",
+            "com.google.android.apps.nexuslauncher",
+            "com.sec.android.app.launcher",
+            "com.miui.home",
+            "com.mi.android.globallauncher",
+            "com.huawei.android.launcher",
+            "com.hihonor.android.launcher",
+            "com.oppo.launcher",
+            "net.oneplus.launcher",
+            "com.bbk.launcher2",
+            "com.vivo.launcher",
+            "com.transsion.hilauncher",
+            "com.transsion.xoslauncher",
+            "com.transsion.itel.launcher",
+            "com.motorola.launcher3",
+            "com.nothing.launcher",
+            "com.lge.launcher2",
+            "com.lge.launcher3",
+            "com.asus.launcher",
+            "com.sonymobile.home",
+            "com.sonyericsson.home",
+            "com.htc.launcher",
+            "com.meizu.flyme.launcher",
+            "cn.nubia.launcher",
+            "com.zte.mifavor.launcher",
+            "com.zui.launcher",
+            "com.lenovo.launcher",
+            "com.smartisanos.launcher",
+            "com.blackshark.launcher"
+    ));
+
+    static boolean isLauncherSurface(String foreground, String activity) {
+        String pkg = foreground == null ? "" : foreground.toLowerCase(Locale.ROOT);
+        if (pkg.endsWith(".home") || launcherSegment(lastPackageSegment(pkg)) || SYSTEM_LAUNCHER_PACKAGES.contains(pkg)) return true;
+        if (Main.isHandoffActivity(activity)) return false;
+        String name = SafetyActionPolicy.activitySimpleName(activity);
+        return "home".equals(name) || "homeactivity".equals(name) || "launcher".equals(name)
+                || "launcheractivity".equals(name) || launcherSegment(name);
+    }
+
+    static String lastPackageSegment(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return "";
+        int dot = pkg.lastIndexOf('.');
+        return dot >= 0 ? pkg.substring(dot + 1) : pkg;
+    }
+
+    static boolean launcherSegment(String segment) {
+        if (segment == null || segment.isEmpty()) return false;
+        int index = segment.lastIndexOf("launcher");
+        if (index < 0) return false;
+        String rest = segment.substring(index + "launcher".length());
+        for (int i = 0; i < rest.length(); i++) {
+            char value = rest.charAt(i);
+            if (value < '0' || value > '9') return false;
+        }
+        return true;
+    }
+
+    /** An exhaustion BACK that lands on the launcher must cold-start. A normal home visit only resumes. */
+    static boolean coldStartAfterExhaustionBack(boolean exhaustionBackPending, boolean launcher) {
+        return exhaustionBackPending && launcher;
+    }
 
     /** Pure classifier for post-coordinate evidence. It never authorizes or performs an action. */
     static String classifyEvidence(String targetPackage, String activity, String xml) {
@@ -59,8 +152,21 @@ final class SpecialHandler {
 
     String preflight(String activity) {
         try {
+            long now = System.currentTimeMillis();
+            if (exhaustionBackPending && now >= exhaustionBackUntil) {
+                exhaustionBackPending = false;
+                exhaustionBackActivity = "";
+            }
             String foreground = activityPackage(activity);
-            if (config.packageName.equals(foreground)) resetExternalRecoveryBudget();
+            if (activity == null || activity.isEmpty() || foreground.isEmpty()) return "skip";
+            if (Main.isHandoffActivity(activity)) return null;
+            if (config.packageName.equals(foreground)) {
+                if (exhaustionBackPending && !keepsExhaustionBack(exhaustionBackActivity, activity, now, exhaustionBackUntil)) {
+                    exhaustionBackPending = false;
+                    exhaustionBackActivity = "";
+                }
+                resetExternalRecoveryBudget();
+            }
             boolean adActivity = AdScenePolicy.isKnownActivity(activity);
             boolean knownController = contains(PERMISSION_PACKAGES, foreground) || contains(REVIEW_PACKAGES, foreground) ||
                     contains(SYSTEM_PICKER_PACKAGES, foreground) || contains(SYSTEM_SETTINGS_PACKAGES, foreground) || "android".equals(foreground);
@@ -68,7 +174,7 @@ final class SpecialHandler {
             if (contains(SYSTEM_PICKER_PACKAGES, foreground)) return recoverExternal(activity, "system_picker");
             if (contains(SYSTEM_SETTINGS_PACKAGES, foreground)) return recoverExternal(activity, "system_settings");
         } catch (Exception error) {
-            emit("special_fallback", activity, "unknown", "safe", ",\"error\":\"" + Main.Guard.escape(String.valueOf(error.getMessage())) + "\"");
+            emit("special_fallback", activity, "unknown", "safe", ",\"error\":\"" + Guard.escape(String.valueOf(error.getMessage())) + "\"");
         }
         return null;
     }
@@ -88,13 +194,13 @@ final class SpecialHandler {
             if (!permission && !review && !systemPicker && !systemSettings && !potentialResolver && !adActivity && external) {
                 return recoverExternal(activity, "external_package");
             }
-            List<Main.NodeExplorer.Node> nodes = new ArrayList<>();
+            List<NodeExplorer.Node> nodes = new ArrayList<>();
             StringBuilder page = new StringBuilder();
-            Matcher tags = Main.NodeExplorer.NODE_TAG.matcher(xml);
+            Matcher tags = NodeExplorer.NODE_TAG.matcher(xml);
             while (tags.find()) {
                 String tag = tags.group();
                 if (tag.startsWith("</")) continue;
-                Main.NodeExplorer.Node node = Main.NodeExplorer.Node.parse(tag);
+                NodeExplorer.Node node = NodeExplorer.Node.parse(tag);
                 if (node == null || (!adActivity && !node.value("package").isEmpty() && !foreground.equals(node.value("package")))) continue;
                 nodes.add(node);
                 page.append(' ').append(node.value("text")).append(' ').append(node.value("content-desc")).append(' ').append(node.value("resource-id"));
@@ -129,12 +235,12 @@ final class SpecialHandler {
                 return act(nodes, DISMISS_TARGETS, "purchase_confirmation", "dismiss", activity, normalizedPage);
             }
             if (containsAny(normalizedPage, CONSENT_MARKERS) && containsAny(normalizedPage, CONSENT_INTENT_MARKERS)) {
-                Main.NodeExplorer.Node target = find(nodes, CONSENT_TARGETS);
+                NodeExplorer.Node target = find(nodes, CONSENT_TARGETS);
                 if (target != null) return act(target, "consent", "accept", activity, normalizedPage);
             }
             if ((normalizedPage.contains("skip") || normalizedPage.contains("跳过")) && (normalizedPage.contains("continue") || normalizedPage.contains("继续"))) {
-                Main.NodeExplorer.Node target = find(nodes, new String[]{"continue", "next", "继续", "下一步"});
-                String key = "onboarding|" + Main.NodeExplorer.SceneSnapshot.digest(normalizedPage);
+                NodeExplorer.Node target = find(nodes, new String[]{"continue", "next", "继续", "下一步"});
+                String key = "onboarding|" + NodeExplorer.SceneSnapshot.digest(normalizedPage);
                 if (target != null && !attempts.containsKey(key)) return act(target, "onboarding", "advance", activity, normalizedPage);
                 return swipe(nodes, activity, normalizedPage);
             }
@@ -142,8 +248,8 @@ final class SpecialHandler {
             if (detectedAd) {
                 if (!adActive) { adActive = true; adEncounter++; }
                 AdScenePolicy.Scene adScene = AdScenePolicy.classify(activity, normalizedPage);
-                Main.NodeExplorer.Node target = find(nodes, DISMISS_TARGETS);
-                Main.NodeExplorer.Node explicitTarget = AdScenePolicy.findExplicitDismiss(nodes, adActivity ? "" : foreground, adScene.phase);
+                NodeExplorer.Node target = find(nodes, DISMISS_TARGETS);
+                NodeExplorer.Node explicitTarget = AdScenePolicy.findExplicitDismiss(nodes, adActivity ? "" : foreground, adScene.phase);
                 if (explicitTarget != null) target = explicitTarget;
                 if (target == null && adActivity) target = AdScenePolicy.findCornerDismiss(nodes, "");
                 if (target != null) {
@@ -163,7 +269,7 @@ final class SpecialHandler {
                         return "skip";
                     }
                     adWaitStarted.remove(activity);
-                    String attemptKey = "ad-back|" + Main.NodeExplorer.SceneSnapshot.digest(normalizedPage);
+                    String attemptKey = "ad-back|" + NodeExplorer.SceneSnapshot.digest(normalizedPage);
                     int attempt = attempts.containsKey(attemptKey) ? attempts.get(attemptKey) : 0;
                     if (attempt >= 1) {
                         attempts.remove(attemptKey);
@@ -185,7 +291,7 @@ final class SpecialHandler {
                 paywallContext = true;
             }
         } catch (Exception error) {
-            emit("special_fallback", activity, "unknown", "safe", ",\"error\":\"" + Main.Guard.escape(String.valueOf(error.getMessage())) + "\"");
+            emit("special_fallback", activity, "unknown", "safe", ",\"error\":\"" + Guard.escape(String.valueOf(error.getMessage())) + "\"");
         }
         return null;
     }
@@ -194,13 +300,17 @@ final class SpecialHandler {
         String foreground = activityPackage(activity);
         String key = "external|" + foreground;
         int count = attempts.containsKey(key) ? attempts.get(key) : 0;
-        boolean launcher = foreground.toLowerCase(Locale.ROOT).contains("launcher") ||
-                (activity != null && activity.toLowerCase(Locale.ROOT).contains("launcher"));
+        boolean launcher = isLauncherSurface(foreground, activity);
+        if (coldStartAfterExhaustionBack(exhaustionBackPending, launcher)) {
+            exhaustionBackPending = false;
+            exhaustionBackActivity = "";
+            return relaunchTarget(activity, kind, key, "exhaustion_left_task");
+        }
         if (launcher) {
             input.wakeAndDismissKeyguard();
             input.run("monkey", "-p", config.packageName, "-c", "android.intent.category.LAUNCHER", "1");
             Thread.sleep(Math.max(300, 300));
-            if (config.packageName.equals(activityPackage(Main.Guard.currentActivity(input)))) {
+            if (config.packageName.equals(activityPackage(Guard.currentActivity(input)))) {
                 emit("special_action", activity, kind, "recover", ",\"gesture\":\"launch\",\"reason\":\"launcher_recovery\"");
                 return "skip";
             }
@@ -246,8 +356,8 @@ final class SpecialHandler {
         while (keys.hasNext()) if (keys.next().startsWith("external|")) keys.remove();
     }
 
-    String act(List<Main.NodeExplorer.Node> nodes, String[] targets, String kind, String policy, String activity, String page) throws Exception {
-        Main.NodeExplorer.Node target = find(nodes, targets);
+    String act(List<NodeExplorer.Node> nodes, String[] targets, String kind, String policy, String activity, String page) throws Exception {
+        NodeExplorer.Node target = find(nodes, targets);
         if (target == null) {
             if ("permission".equals(kind)) {
                 String key = "permission-wait|" + activity;
@@ -269,16 +379,16 @@ final class SpecialHandler {
         return act(target, kind, policy, activity, page);
     }
 
-    String act(Main.NodeExplorer.Node target, String kind, String policy, String activity, String page) throws Exception {
+    String act(NodeExplorer.Node target, String kind, String policy, String activity, String page) throws Exception {
         return actAt(target, target.centerX(), target.centerY(), kind, policy, activity, page);
     }
 
-    String actAt(Main.NodeExplorer.Node target, int x, int y, String kind, String policy, String activity, String page) throws Exception {
+    String actAt(NodeExplorer.Node target, int x, int y, String kind, String policy, String activity, String page) throws Exception {
         return actAt(target, x, y, kind, policy, activity, page, null);
     }
 
-    String actAt(Main.NodeExplorer.Node target, int x, int y, String kind, String policy, String activity, String page, String scopedKey) throws Exception {
-        String key = scopedKey != null ? scopedKey : ("ad".equals(kind) ? "ad|" + adEncounter + "|" + activity : kind + "|" + Main.NodeExplorer.SceneSnapshot.digest(page));
+    String actAt(NodeExplorer.Node target, int x, int y, String kind, String policy, String activity, String page, String scopedKey) throws Exception {
+        String key = scopedKey != null ? scopedKey : ("ad".equals(kind) ? "ad|" + adEncounter + "|" + activity : kind + "|" + NodeExplorer.SceneSnapshot.digest(page));
         int count = attempts.containsKey(key) ? attempts.get(key) : 0;
         long now = System.currentTimeMillis();
         Long previous = attemptAt.get(key);
@@ -288,7 +398,7 @@ final class SpecialHandler {
         }
         if (count >= 3) {
             if ("ad".equals(kind)) {
-                emit("special_attempt_limit", activity, kind, policy, ",\"recovery\":\"relaunch\",\"adPhaseKey\":\"" + Main.Guard.escape(key) + "\"");
+                emit("special_attempt_limit", activity, kind, policy, ",\"recovery\":\"relaunch\",\"adPhaseKey\":\"" + Guard.escape(key) + "\"");
                 return relaunchTarget(activity, kind, key, "dismiss_attempts_exhausted");
             }
             emit("special_attempt_limit", activity, kind, policy, ",\"recovery\":\"relaunch\"");
@@ -297,19 +407,19 @@ final class SpecialHandler {
         attempts.put(key, count + 1);
         attemptAt.put(key, now);
         input.tap(x, y);
-        emit("special_action", activity, kind, policy, ",\"node\":\"" + Main.Guard.escape(target.key()) + "\"");
+        emit("special_action", activity, kind, policy, ",\"node\":\"" + Guard.escape(target.key()) + "\"");
         return "skip";
     }
 
-    String swipe(List<Main.NodeExplorer.Node> nodes, String activity, String page) throws Exception {
-        Main.NodeExplorer.Node largest = null;
+    String swipe(List<NodeExplorer.Node> nodes, String activity, String page) throws Exception {
+        NodeExplorer.Node largest = null;
         long largestArea = 0;
-        for (Main.NodeExplorer.Node node : nodes) {
+        for (NodeExplorer.Node node : nodes) {
             long area = (long)(node.right - node.left) * (node.bottom - node.top);
             if (area > largestArea) { largest = node; largestArea = area; }
         }
         if (largest == null || largest.right - largest.left < 200) return relaunchTarget(activity, "onboarding", "onboarding|invalid", "no_swipe_surface");
-        String key = "onboarding|" + Main.NodeExplorer.SceneSnapshot.digest(page);
+        String key = "onboarding|" + NodeExplorer.SceneSnapshot.digest(page);
         int count = attempts.containsKey(key) ? attempts.get(key) : 0;
         if (count >= 3) return relaunchTarget(activity, "onboarding", key, "advance_attempts_exhausted");
         attempts.put(key, count + 1);
@@ -321,20 +431,20 @@ final class SpecialHandler {
         return "skip";
     }
 
-    static Main.NodeExplorer.Node find(List<Main.NodeExplorer.Node> nodes, String[] targets) {
-        for (Main.NodeExplorer.Node node : nodes) {
+    static NodeExplorer.Node find(List<NodeExplorer.Node> nodes, String[] targets) {
+        for (NodeExplorer.Node node : nodes) {
             if ("android.webkit.WebView".equals(node.value("class"))) continue;
             if (!node.validArea() || !"true".equals(node.value("clickable")) || !node.eligible(Collections.<String>emptyList())) continue;
             String label = (node.value("text") + " " + node.value("content-desc") + " " + node.value("resource-id")).trim().toLowerCase(Locale.ROOT);
             if (matchesLabel(label, targets)) return node;
         }
-        for (Main.NodeExplorer.Node labelNode : nodes) {
+        for (NodeExplorer.Node labelNode : nodes) {
             String label = (labelNode.value("text") + " " + labelNode.value("content-desc") + " " + labelNode.value("resource-id")).trim().toLowerCase(Locale.ROOT);
             if (!matchesLabel(label, targets)) continue;
-            Main.NodeExplorer.Node best = null;
+            NodeExplorer.Node best = null;
             long bestArea = Long.MAX_VALUE;
             int x = labelNode.centerX(), y = labelNode.centerY();
-            for (Main.NodeExplorer.Node candidate : nodes) {
+            for (NodeExplorer.Node candidate : nodes) {
                 if ("android.webkit.WebView".equals(candidate.value("class"))) continue;
                 if (!candidate.validArea() || !"true".equals(candidate.value("clickable")) || !candidate.eligible(Collections.<String>emptyList())) continue;
                 if (x < candidate.left || x > candidate.right || y < candidate.top || y > candidate.bottom) continue;
@@ -354,5 +464,5 @@ final class SpecialHandler {
     static boolean containsAny(String value, String[] candidates) { for (String candidate : candidates) if (value.contains(candidate)) return true; return false; }
     static boolean contains(String[] values, String candidate) { for (String value : values) if (value.equals(candidate)) return true; return false; }
     static String activityPackage(String activity) { int slash = activity == null ? -1 : activity.indexOf('/'); return slash < 0 ? "" : activity.substring(0, slash); }
-    void emit(String state, String activity, String kind, String policy, String extra) { System.out.println("{\"state\":\""+state+"\",\"requestId\":\""+Main.Guard.escape(config.requestId)+"\",\"package\":\""+config.packageName+"\",\"activity\":\""+Main.Guard.escape(activity == null ? "" : activity)+"\",\"specialKind\":\""+kind+"\",\"policy\":\""+policy+"\""+extra+",\"time\":"+System.currentTimeMillis()+"}"); }
+    void emit(String state, String activity, String kind, String policy, String extra) { System.out.println("{\"state\":\""+state+"\",\"requestId\":\""+Guard.escape(config.requestId)+"\",\"package\":\""+config.packageName+"\",\"activity\":\""+Guard.escape(activity == null ? "" : activity)+"\",\"specialKind\":\""+kind+"\",\"policy\":\""+policy+"\""+extra+",\"time\":"+System.currentTimeMillis()+"}"); }
 }

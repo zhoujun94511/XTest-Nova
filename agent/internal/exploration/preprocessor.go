@@ -114,6 +114,7 @@ type SpecialEvent struct {
 	WaitLimitSeconds int     `json:"waitLimitSeconds,omitempty"`
 	Reason           string  `json:"reason,omitempty"`
 	Action           *Action `json:"action,omitempty"`
+	PostWaitAction   *Action `json:"postWaitAction,omitempty"`
 	FallbackAction   *Action `json:"fallbackAction,omitempty"`
 }
 
@@ -177,10 +178,25 @@ var paywallContextDeniedText = []string{
 }
 var reviewMarkers = []string{"rate this app", "reviews are only visible", "first star", "评价此应用", "评分", "撰写评价"}
 var purchaseMarkers = []string{"subscribe", "confirm purchase", "payment method", "订阅", "确认购买", "付款方式"}
+var purchaseFailureMarkers = []string{
+	"充值失败", "支付失败", "购买失败", "付款失败",
+	"payment failed", "purchase failed", "billing failed",
+}
 var targetPurchaseConfirmationMarkers = []string{"pay now", "order info", "one-time purchase", "confirm payment", "place order", "立即支付", "订单信息", "确认支付", "提交订单"}
 var billingErrorMarkers = []string{"not configured for google play billing", "未配置为通过 google play 结算"}
 var billingErrorTargets = []string{"ok", "got it", "知道了", "确定"}
 var resolverMarkers = []string{"open with", "complete action using", "just once", "打开方式", "仅此一次", "始终使用选择的应用程序"}
+var loadFailureMarkers = []string{
+	"error code", "server error", "failed to load", "unable to load", "something went wrong",
+	"错误码", "服务器异常", "服务器错误", "加载失败", "网络异常", "网络错误", "请求失败",
+	"รหัสข้อผิดพลาด", "เซิร์ฟเวอร์พบข้อผิดพลาด",
+	"오류 코드", "서버 오류", "불러오지 못했습니다",
+}
+var loadRetryTargets = []string{
+	"try again", "retry", "tap to retry", "reload",
+	"重试", "重新加载", "点击重试", "再试一次",
+	"ลองอีกครั้ง", "다시 시도", "재시도",
+}
 
 var consentAcceptTargets = []string{"agree", "accept", "continue", "i agree", "同意", "接受", "继续"}
 var consentDeclineTargets = []string{"decline", "disagree", "exit", "不同意", "拒绝", "退出"}
@@ -236,14 +252,21 @@ func inspectSpecialActivity(hierarchy, targetPackage, foreground, activity strin
 		} else if selectedPolicy == policyDecline {
 			targets = consentDeclineTargets
 		}
-	} else if foreground == targetPackage && containsAllGroups(pageText, []string{"skip", "跳过"}, []string{"continue", "继续"}) {
+	} else if foreground == targetPackage && !isLanguageSettingsActivity(activity) && !pageHasLanguageOptions(nodes, foreground) && containsAllGroups(pageText, []string{"skip", "跳过"}, []string{"continue", "继续"}) {
 		kind, selectedPolicy, targets = "onboarding", policy.OnboardingPolicy, []string{"continue", "next", "继续", "下一步"}
 	} else if isKnownAdActivity(activity) {
 		kind, selectedPolicy, targets, resourceFragments = "ad", policy.AdPolicy, dismissTargets, dismissResourceFragments
+	} else if action, loadOK := loadFailureAction(nodes, foreground); foreground == targetPackage && loadOK {
+		action.SpecialKind, action.Policy, action.Recovery = "load_failure", policyDismiss, true
+		event := SpecialEvent{Kind: "load_failure", Policy: policyDismiss, Outcome: "action", Foreground: foreground, Reason: "visible page reported a load failure and exposed a retry control", Action: &action}
+		event.Fingerprint = specialFingerprint(event.Kind, foreground, specialPageText(onScreenSpecialNodes(nodes, foreground), foreground))
+		return event, true, nil
+	} else if foreground == targetPackage && containsAny(pageText, purchaseFailureMarkers) && hasSpecialTarget(nodes, foreground, dismissTargets, dismissResourceFragments) {
+		kind, selectedPolicy, targets, resourceFragments = "purchase_failure", policyDismiss, dismissTargets, dismissResourceFragments
 	} else if foreground == targetPackage && containsAny(pageText, paywallMarkers) {
 		kind, selectedPolicy, targets, resourceFragments = "paywall", policy.PaywallPolicy, dismissTargets, dismissResourceFragments
-	} else if foreground == targetPackage && containsAny(pageText, adMarkers) && hasSpecialTarget(nodes, foreground, dismissTargets, dismissResourceFragments) {
-		kind, selectedPolicy, targets, resourceFragments = "ad", policy.AdPolicy, dismissTargets, dismissResourceFragments
+	} else if foreground == targetPackage && containsAny(pageText, adMarkers) && hasSpecialTarget(nodes, foreground, explicitInAppAdDismissText, explicitInAppAdDismissResources) {
+		kind, selectedPolicy, targets, resourceFragments = "ad", policy.AdPolicy, explicitInAppAdDismissText, explicitInAppAdDismissResources
 	} else {
 		return SpecialEvent{}, false, nil
 	}
@@ -251,7 +274,6 @@ func inspectSpecialActivity(hierarchy, targetPackage, foreground, activity strin
 	if kind == "ad" {
 		scene := classifyAdScene(activity, pageText)
 		event.AdType, event.AdPhase = scene.Type, scene.Phase
-		event.WaitLimitSeconds = adWaitLimitSeconds(scene.Type, policy.AdMaxWaitSeconds)
 	}
 	event.Fingerprint = specialFingerprint(kind, foreground, pageText)
 	if selectedPolicy == policyExplore {
@@ -290,10 +312,16 @@ func inspectSpecialActivity(hierarchy, targetPackage, foreground, activity strin
 			action, ok = candidate, true
 		}
 		if !ok {
-			event.Outcome = "wait"
-			event.Reason = "known full-screen ad activity has not exposed a safe dismiss control"
 			fallback := specialBackAction("ad", foreground, pageText)
 			event.FallbackAction = &fallback
+			if corner, cornerOK := adPostWaitCornerAction(nodes, foreground); cornerOK {
+				corner.SpecialKind, corner.Policy, corner.Recovery = "ad", selectedPolicy, true
+				event.Outcome, event.Action = "action", &corner
+				event.Reason = "known full-screen ad has no dismiss node; tapping the top-end close position"
+				return event, true, nil
+			}
+			event.Outcome, event.Action = "action", &fallback
+			event.Reason = "known full-screen ad has no dismiss node"
 			return event, true, nil
 		}
 	}
@@ -462,6 +490,23 @@ func containsAllGroups(value string, groups ...[]string) bool {
 		}
 	}
 	return true
+}
+
+func pageHasLanguageOptions(nodes []specialNode, foreground string) bool {
+	options := 0
+	var walk func([]specialNode)
+	walk = func(list []specialNode) {
+		for _, node := range list {
+			if node.Package == foreground && node.Clickable == "true" && node.Enabled != "false" && node.Visible != "false" {
+				if isLanguageOptionLabel(node.Text) || isLanguageOptionLabel(node.Description) {
+					options++
+				}
+			}
+			walk(node.Children)
+		}
+	}
+	walk(nodes)
+	return options >= 2
 }
 
 func onboardingSwipe(nodes []specialNode, foreground string) (Action, bool) {

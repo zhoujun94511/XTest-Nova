@@ -1,11 +1,12 @@
 # Monkey 高级策略 API
 
-命令行 `monkey start`、Web 控制台的遍历和悬浮窗都向 Monkey POST 提交同一次遍历。
-Web 控制台填写运行时长和动作间隔。间隔默认 500 毫秒，范围 50–60000；低电量 15% 停止默认勾选，取消后不因电量停止。页面同时固定发送有界渲染和不限制活动范围。
-Agent 存在探索引擎时，这次请求由探索会话执行，不再另起一套随机过程。基础字段为目标包、
+命令行 `monkey start` 和悬浮窗向 Monkey POST 提交同一次遍历，请求体可以带 `engine=exploration` 或 `engine=runner`。Web 控制台的随机遍历带 `engine=runner`，进入 Java Runner；智能探索调用 `POST /v1/exploration/sessions`。不带 `engine` 的 Monkey POST 在发行版上仍进入探索会话。命令行的 `status` 和 `stop` 用 `--engine` 对应到 `?engine=`。会话内部的轮次、特殊页、离包和卡住页见 [当前遍历链路](exploration-api.md#当前遍历链路)。
+随机遍历填写运行时长和动作间隔。间隔默认 500 毫秒，表单范围 50–60000；低电量 15% 停止默认勾选，取消后不因电量停止。页面同时固定发送有界渲染和不限制活动范围。智能探索的间隔表单范围是 100–60000，因为探索接口不把小于 100 毫秒的值抬高。
+`engine=runner` 时请求交给 Java Runner，间隔保持 50–60000，时长按 1–604800 秒校验，不把 1–59 秒抬到 60 秒。Web 表单本身最少填 60 秒。不带 `engine` 且存在探索引擎时，由探索会话执行。基础字段为目标包、
 运行秒数、事件间隔和可选随机种子。三个入口未改参数时都发送：间隔 500 毫秒、
 `renderFallbackMode=bounded`、`lowBatteryExit=true`、`minBatteryPercent=15`、
 `activityMode=none`。接口本身省略这些字段时，低电量退出为关闭，空的渲染策略按有界处理。
+`throttleMillis` 先按 50–60000 校验；通过后，探索会话把小于 100 毫秒的间隔抬到 100 毫秒。没有探索引擎时才把请求交给 Java Runner，那时间隔保持 50–60000，不做这次抬升。
 
 高级字段如下：
 
@@ -38,7 +39,7 @@ Agent 存在探索引擎时，这次请求由探索会话执行，不再另起�
 且层级里有 `SurfaceView` 或 `UnityPlayer` 时才使用坐标点击。`bounded` 每个 Activity 最多 5 次，
 `continuous` 不设这个次数。
 
-设置 `durationSeconds` 后，会话只在时长到达时以 `duration_elapsed` 结束，步数不是停止条件。
+`durationSeconds` 在探索会话上必填。省略或小于 60 秒时先抬到 60 秒再校验，上限 604800 秒。时长到达时以 `duration_elapsed` 结束，不再以步数结束。手动停止、低电量、`policy_required`、`input_failed`、`safety_stop` 和连续 20 次不稳定采集仍会结束会话。没有探索引擎时，Java Runner 仍按 1–604800 秒校验，不把 1–59 秒抬到 60 秒。
 低电量每 30 秒读取一次 `dumpsys battery`，电量不高于 `minBatteryPercent` 时以 `low_battery` 结束；
 正在充电也不豁免。读数失败不停止。
 
@@ -46,7 +47,7 @@ Agent 存在探索引擎时，这次请求由探索会话执行，不再另起�
 新的启动返回 HTTP 409，正在执行的会话和它的目标页计划都保持不变。相同 `requestId`
 只有在规范化配置一致时才作为幂等重试返回原状态；同键异参同样返回 HTTP 409。
 三个入口通常各自生成新的请求，因此第二次点击是冲突，不是续跑，也不会排队。
-任一入口都可以读取当前会话身份并停止它。停止会等到正在执行的目标页回放不再占用输入，
+任一入口都可以读取当前会话身份并停止它。`GET /v1/monkey/runs/current` 在随机遍历和智能探索都空闲时，返回较晚启动的那一次；正在运行的那一次优先。停止随机遍历时，只有这次 Runner 会话仍在运行或收尾，才结束它带起的目标页回放。Runner 已经空闲时，这个停止不碰独立回放，也不清掉另一次会话的目标页计划。停止会等到正在执行的目标页回放不再占用输入，
 Agent 与悬浮窗这条停止请求最长等待 120 秒。
 
 目标 Activity 首次命中会进入已准备的签名用例。用例失败或单次回放超过五分钟时，
@@ -109,10 +110,8 @@ Activity 本身允许包含 `/`，等号右侧最后一个 `/` 用于分隔任�
 `exitCode`、`artifactDir`、日志/清单/覆盖率/探索图路径、探索计数、截图路径和非致命产物错误。
 `running=false, finalizing=true` 表示 Runner 子进程已经退出但派生产物仍在收尾；只有
 `running=false, finalizing=false` 才表示最终清单、覆盖率、探索图和结束截图均已完成写入。
-`completed` 只表示遍历预算正常结束，不代表已经到达某个业务页面。已识别的 Onboarding 在
-所有安全前进点击和左滑预算耗尽后返回 `stopReason=onboarding_exhausted`，并保留当前页面供
-诊断；该终态不会执行通用 Back、force-stop 或重新拉起应用。探索指标中的
-`onboardingExhaustions` 记录该保护门禁的命中次数。
+`completed` 只表示遍历预算正常结束，不代表已经到达某个业务页面。发行版走探索会话时，引导页是特殊场景：先点继续或下一步，没有这些控件时从右向左滑；次数用完后走卡住页逃逸，不以 `onboarding_exhausted` 停止。
+`onboarding_exhausted` 只属于没有探索引擎时的 Java Runner：安全前进点击和左滑预算耗尽后停在当前页，不执行通用 Back、force-stop 或重新拉起。类名含 `language` 或 `locale` 的页面不把继续、下一步当成引导前进。首次启动的语言页不看类名：同一页至少两个控件的整段文案是语言名时，有 English 就点 English，否则点中文或简体中文，这一下成功之后再点继续或确定。没有文案的控件和语言设置标题不拆散这个页面。旁边还有普通内容控件时，避开语言名以及继续、确定。点击失败时不确认。跳过不点。类名含 setting、language 或 locale 的页面不改语言。返回和滑动仍然保留。启动等待同样只看类名里的 splash、startup、launch、loading、routing，包名和类路径不算。有进展的耗尽只返回。原页面还在前台时，这次冷启动最多保留 8 秒；页面一直不变则过期。8 秒内落到这些桌面才 `force-stop` 后冷启动：包名最后一段以 `launcher` 结尾或只跟数字，包名以 `.home` 结尾，类名是 `Launcher`、`LauncherActivity`、`Home`、`HomeActivity` 或以 `Launcher` 结尾，以及按整段包名收录的系统桌面进程。类名同时含 `share`、`chooser`、`resolver`、`sendintent` 时按交接页返回，不按桌面拉起。前台读空时本轮等待，不发送返回键。回到应用内另一个页面则继续探索。其他时候落到桌面仍只拉起，不 force-stop。该路径的 `onboardingExhaustions` 记录这道门禁的命中次数。
 诊断产物使用本次会话起始时间和目标包过滤，`run.json` 同步记录 `crashCount`、`anrCount`、
 `nativeCrashCount`、`failureType`、采集可用性及错误。检测到 Java/Native Crash 或 ANR 时，
 `stopReason` 分别归一为 `app_crash` 或 `app_anr`，结束截图使用 `failure.png`。非 Root 设备无法读取的

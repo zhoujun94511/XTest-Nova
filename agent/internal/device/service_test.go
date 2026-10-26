@@ -40,19 +40,17 @@ func TestForegroundFocusReadsRelayoutSequence(t *testing.T) {
 			"  Window #3 Window{a1b2 u0 com.example/com.example.MainActivity}:\n    mSeq=17\n",
 	}}, time.Second)
 	component, version, err := service.ForegroundFocus(context.Background())
-	if err != nil || component != "com.example/com.example.MainActivity" || version != "17" {
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "a1b2" {
 		t.Fatalf("focus = %q %q, %v", component, version, err)
 	}
 }
 
-func TestForegroundFocusReadsSequenceFromFullWindowDump(t *testing.T) {
+func TestForegroundFocusDoesNotDumpEveryWindowService(t *testing.T) {
 	service := New(fakeExecutor{values: map[string]string{
 		"dumpsys window windows": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
-		"dumpsys window": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}\n" +
-			"  Window #3 Window{a1b2 u0 com.example/com.example.MainActivity}:\n    mSeq=21\n",
 	}}, time.Second)
 	component, version, err := service.ForegroundFocus(context.Background())
-	if err != nil || component != "com.example/com.example.MainActivity" || version != "21" {
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "a1b2" {
 		t.Fatalf("focus = %q %q, %v", component, version, err)
 	}
 }
@@ -64,7 +62,7 @@ func TestForegroundFocusReadsSequenceForResumedActivity(t *testing.T) {
 		"dumpsys activity activities": "topResumedActivity=ActivityRecord{231359804 u0 com.example.target/com.example.Main t3657}",
 	}}, time.Second)
 	component, version, err := service.ForegroundFocus(context.Background())
-	if err != nil || component != "com.example.target/com.example.Main" || version != "9" {
+	if err != nil || component != "com.example.target/com.example.Main" || version != "abc" {
 		t.Fatalf("focus = %q %q, %v", component, version, err)
 	}
 }
@@ -77,18 +75,18 @@ func TestForegroundFocusPrefersResumedActivity(t *testing.T) {
 			"  Window #2 Window{app u0 com.example/com.example.MainActivity}:\n    mSeq=17\n",
 	}}, time.Second)
 	component, version, err := service.ForegroundFocus(context.Background())
-	if err != nil || component != "com.example/com.example.MainActivity" || version != "17" {
+	if err != nil || component != "com.example/com.example.MainActivity" || version != "app" {
 		t.Fatalf("focus = %q %q, %v", component, version, err)
 	}
 }
 
-func TestForegroundFocusContinuesWithoutRelayoutSequence(t *testing.T) {
+func TestForegroundFocusLeavesVersionEmptyWhenWindowTokenIsMissing(t *testing.T) {
 	service := New(fakeExecutor{values: map[string]string{
-		"dumpsys window windows": "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
-		"dumpsys window":         "mCurrentFocus=Window{a1b2 u0 com.example/.MainActivity}",
+		"dumpsys window windows":      "mCurrentFocus=null\nmFocusedApp=null",
+		"dumpsys activity activities": "topResumedActivity=ActivityRecord{231359804 u0 com.example.target/com.example.Main t3657}",
 	}}, time.Second)
 	component, version, err := service.ForegroundFocus(context.Background())
-	if err != nil || component != "com.example/com.example.MainActivity" || version != "" {
+	if err != nil || component != "com.example.target/com.example.Main" || version != "" {
 		t.Fatalf("focus = %q %q, %v", component, version, err)
 	}
 }

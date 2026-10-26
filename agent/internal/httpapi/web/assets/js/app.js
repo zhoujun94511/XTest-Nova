@@ -7,12 +7,33 @@
   const PerformanceView = window.NovaPerformanceView;
   const {q, qa, api, jsonBody, required, numberValue, checked, fileURL, fileInfoURL, archiveURL, toast, setButtonBusy} = C;
 
-  function traversalBody() {
-    const lowBatteryExit = checked('#traversal-low-battery');
+  function runnerBody() {
+    const lowBatteryExit = checked('#runner-low-battery');
     return {
       package: packageName(),
-      durationSeconds: numberValue('#traversal-duration'),
-      throttleMillis: numberValue('#traversal-interval'),
+      engine: 'runner',
+      durationSeconds: Math.max(60, numberValue('#runner-duration') || 60),
+      throttleMillis: numberValue('#runner-interval'),
+      renderFallbackMode: 'bounded',
+      lowBatteryExit,
+      minBatteryPercent: lowBatteryExit ? 15 : 0,
+      activityMode: 'none',
+      activities: [],
+      controlBlacklist: [],
+      targetCases: [],
+    };
+  }
+
+  function explorationBody() {
+    const lowBatteryExit = checked('#exploration-low-battery');
+    return {
+      package: packageName(),
+      durationSeconds: Math.max(60, numberValue('#exploration-duration') || 60),
+      intervalMillis: Math.max(100, numberValue('#exploration-interval') || 500),
+      execute: true,
+      enableScroll: true,
+      enableBacktrack: true,
+      recoverPopups: true,
       renderFallbackMode: 'bounded',
       lowBatteryExit,
       minBatteryPercent: lowBatteryExit ? 15 : 0,
@@ -198,7 +219,7 @@
   }
 
   const renderSessionBanner = sessions => {
-    const labels = {runner: '遍历', exploration: '遍历', recording: '录制', replay: '回放', screenRecord: '屏幕录制', performance: '性能采集'};
+    const labels = {runner: '随机遍历', exploration: '智能探索', recording: '录制', replay: '回放', screenRecord: '屏幕录制', performance: '性能采集'};
     const active = [...new Set(Object.entries(sessions).filter(([, state]) => typeof state === 'boolean' ? state : state && (state.running || state.stopping || state.finalizing)).map(([name]) => labels[name] || name))];
     const banner = q('#active-session');
     banner.hidden = active.length === 0;
@@ -215,11 +236,18 @@
     if (!silent) toast(`已读取 ${model.packages.length} 个应用`);
   };
 
-  const refreshTraversal = async (silent = false) => {
-    const state = await api('/v1/monkey/runs/current', {uiSilent: silent});
-    R.setPill('#traversal-state-pill', state);
-    R.renderData('#traversal-output', state, ['running', 'steps', 'stopReason', 'error', 'discoveredStates', 'recoveries']);
-    model.traversalState = state;
+  const refreshRunner = async (silent = false) => {
+    const state = await api('/v1/monkey/runs/current?engine=runner', {uiSilent: silent});
+    R.setPill('#runner-state-pill', state);
+    R.renderData('#runner-output', state, ['running', 'steps', 'stopReason', 'error', 'discoveredStates', 'recoveries']);
+    model.runnerState = state;
+    return state;
+  };
+  const refreshExploration = async (silent = false) => {
+    const state = await api('/v1/exploration/sessions/current', {uiSilent: silent});
+    R.setPill('#exploration-state-pill', state);
+    R.renderData('#exploration-output', state, ['running', 'steps', 'stopReason', 'error', 'discoveredStates', 'recoveries']);
+    model.explorationState = state;
     return state;
   };
   const refreshPerformance = async (silent = false) => {
@@ -353,17 +381,28 @@
       await loadApps(true);
       toast('应用已卸载');
     },
-    'traversal-preview': async () => R.renderData('#traversal-output', await api('/v1/exploration/preview', jsonBody({package: packageName()}))),
-    'traversal-start': async () => {
-      await api('/v1/monkey/runs/current', jsonBody(traversalBody()));
-      await refreshTraversal();
-      toast('遍历已开始');
+    'exploration-preview': async () => R.renderData('#exploration-output', await api('/v1/exploration/preview', jsonBody({package: packageName()}))),
+    'runner-start': async () => {
+      await api('/v1/monkey/runs/current', jsonBody(runnerBody()));
+      await refreshRunner();
+      toast('随机遍历已开始');
     },
-    'traversal-stop': async () => {
-      if (!model.traversalState) await refreshTraversal(true);
-      await api('/v1/monkey/runs/current', {method: 'DELETE', headers: ownerHeaders(model.traversalState)});
-      await refreshTraversal();
-      toast('遍历已停止，产物正在收尾');
+    'runner-stop': async () => {
+      if (!model.runnerState) await refreshRunner(true);
+      await api('/v1/monkey/runs/current?engine=runner', {method: 'DELETE', headers: ownerHeaders(model.runnerState)});
+      await refreshRunner();
+      toast('随机遍历已停止，产物正在收尾');
+    },
+    'exploration-start': async () => {
+      await api('/v1/exploration/sessions', jsonBody(explorationBody()));
+      await refreshExploration();
+      toast('智能探索已开始');
+    },
+    'exploration-stop': async () => {
+      if (!model.explorationState) await refreshExploration(true);
+      await api('/v1/exploration/sessions/current', {method: 'DELETE', headers: ownerHeaders(model.explorationState)});
+      await refreshExploration();
+      toast('智能探索已停止');
     },
     'record-start': async () => {
       const name = required('#record-name', '请输入用例名称');
@@ -473,7 +512,7 @@
   };
 
   const sessionMutationActions = new Set([
-    'traversal-start', 'traversal-stop', 'traversal-preview', 'record-start', 'record-stop',
+    'runner-start', 'runner-stop', 'exploration-start', 'exploration-stop', 'exploration-preview', 'record-start', 'record-stop',
     'replay-start', 'replay-stop', 'perf-start', 'perf-stop'
   ]);
 
@@ -531,13 +570,15 @@
       const busy = state => Boolean(state && (state.running || state.stopping || state.finalizing));
       const wasOrIsBusy = name => busy(sessions[name]) || busy(previous[name]);
       renderSessionBanner(sessions);
-      R.setPill('#traversal-state-pill', busy(sessions.exploration) ? sessions.exploration : sessions.runner || {});
+      R.setPill('#runner-state-pill', sessions.runner || {});
+      R.setPill('#exploration-state-pill', sessions.exploration || {});
       R.setPill('#perf-state-pill', sessions.performance || {});
       R.setPill('#record-state-pill', busy(sessions.replay) ? sessions.replay : sessions.recording || {});
 
       const details = [];
       if (model.activeView === 'automation') {
-        if (wasOrIsBusy('runner') || wasOrIsBusy('exploration')) details.push(refreshTraversal(true));
+        if (wasOrIsBusy('runner')) details.push(refreshRunner(true));
+        if (wasOrIsBusy('exploration')) details.push(refreshExploration(true));
         if (wasOrIsBusy('replay')) details.push(refreshRecordReplay('replay', true));
         else if (wasOrIsBusy('recording')) details.push(refreshRecordReplay('record', true));
       } else if (model.activeView === 'performance' && wasOrIsBusy('performance')) {

@@ -5,14 +5,15 @@ import (
 	"encoding/hex"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
-	cycleHistoryLimit            = 64
-	cycleMaxPeriod               = 8
-	cycleRepetitions             = 3
-	repeatedTransitionLimit      = 4
-	stallEscalationCooldownSteps = 60
+	cycleHistoryLimit       = 64
+	cycleMaxPeriod          = 8
+	cycleRepetitions        = 3
+	repeatedTransitionLimit = 4
+	stallEscalationCooldown = 30 * time.Second
 )
 
 type transitionSample struct {
@@ -89,10 +90,11 @@ func semanticStateKey(analysis Analysis, activity string) string {
 func explorationEdgeKey(state, action string) string { return state + "\x00" + action }
 
 // armStallEscalation allows one recovery after a blocked loop. The same screen
-// stays cooled down so exploration does not relaunch or backtrack again immediately.
-func armStallEscalation(state string, step, cooldownUntil int, cooledState string) bool {
+// stays cooled down on the wall clock so exploration does not relaunch or
+// backtrack again immediately.
+func armStallEscalation(state string, now, cooldownUntil time.Time, cooledState string) bool {
 	if state == "" {
 		return false
 	}
-	return state != cooledState || step >= cooldownUntil
+	return state != cooledState || !now.Before(cooldownUntil)
 }

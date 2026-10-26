@@ -33,7 +33,7 @@ function Test-Installed([string]$PackageName) {
 }
 
 function Get-ForegroundPackage {
-    $text = (Invoke-Adb @('shell', 'dumpsys', 'window') | Out-String)
+    $text = (Invoke-Adb @('shell', 'dumpsys', 'window', 'windows') | Out-String)
     $match = [regex]::Match($text, 'mCurrentFocus=.*?\s([A-Za-z][A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)')
     if ($match.Success) { return $match.Groups[1].Value }
     $match = [regex]::Match($text, 'mFocusedApp=.*?\s([A-Za-z][A-Za-z0-9_.]+)/(?:[A-Za-z0-9_.$]+)')

@@ -104,11 +104,14 @@ func TestRelayoutSequenceDoesNotInvalidateCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(6 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && manager.State().Steps < 1 {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason == "unstable_capture_limit" || state.Steps < 1 {
+	if state.StopReason == "unstable_capture_limit" || state.Steps < 1 {
 		t.Fatalf("state=%#v", state)
 	}
 }

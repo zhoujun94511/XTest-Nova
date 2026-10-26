@@ -420,12 +420,41 @@ func (a *API) shell(w http.ResponseWriter, r *http.Request) {
 func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
-		if a.explorer != nil && useExplorationForMonkey(a.explorer.State(), a.runner.State()) {
-			writeJSON(w, 200, a.explorer.State())
+		selected, err := queryEngine(r)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		writeJSON(w, 200, a.runner.State())
+		switch selected {
+		case "runner":
+			writeJSON(w, 200, a.runner.State())
+		case "exploration":
+			if a.explorer == nil {
+				fail(w, http.StatusServiceUnavailable, errors.New("exploration engine unavailable"))
+				return
+			}
+			writeJSON(w, 200, a.explorer.State())
+		default:
+			if a.explorer != nil && useExplorationForMonkey(a.explorer.State(), a.runner.State()) {
+				writeJSON(w, 200, a.explorer.State())
+				return
+			}
+			writeJSON(w, 200, a.runner.State())
+		}
 	case "DELETE":
+		selected, err := queryEngine(r)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if selected == "exploration" {
+			a.stopExploration(w, r)
+			return
+		}
+		if selected == "runner" {
+			a.stopRunnerOwned(w, r)
+			return
+		}
 		a.executionMu.Lock()
 		if a.explorer != nil {
 			state := a.explorer.State()
@@ -441,32 +470,7 @@ func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		var s runner.State
-		var e error
-		if owned, ok := a.runner.(interface {
-			StopOwned(string, string) (runner.State, error)
-		}); ok {
-			sessionID, ownerToken := executionCredentials(r)
-			s, e = owned.StopOwned(sessionID, ownerToken)
-		} else {
-			s, e = a.runner.Stop()
-		}
-		if e != nil {
-			a.executionMu.Unlock()
-			fail(w, http.StatusConflict, e)
-			return
-		}
-		if a.recordReplay != nil {
-			replay := a.recordReplay.ReplayState()
-			if replay.Running || replay.Stopping || replay.Finalizing {
-				stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				_, _ = a.recordReplay.StopReplay(stopContext)
-				cancel()
-			}
-		}
-		a.clearMonkeyTargetPlan()
-		a.executionMu.Unlock()
-		writeJSON(w, 200, s)
+		a.finishRunnerStop(w, r)
 	case "POST":
 		r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 		var raw json.RawMessage
@@ -523,7 +527,43 @@ func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, e)
 			return
 		}
+		selected, err := bodyEngine(raw)
+		if err != nil {
+			a.executionMu.Unlock()
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if selected == "runner" || (selected == "" && a.explorer == nil) {
+			s, e := a.runner.Start(c)
+			if e == nil && s.Running {
+				a.setMonkeyTargetPlan(plan)
+			}
+			a.executionMu.Unlock()
+			if errors.Is(e, runner.ErrAlreadyRunning) || errors.Is(e, runner.ErrRequestConflict) {
+				writeJSON(w, 409, s)
+				return
+			}
+			if e != nil {
+				fail(w, 400, e)
+				return
+			}
+			writeJSON(w, 202, s)
+			return
+		}
+		if a.explorer == nil {
+			a.executionMu.Unlock()
+			fail(w, http.StatusServiceUnavailable, errors.New("exploration engine unavailable"))
+			return
+		}
+		if runnerState := a.runner.State(); runnerState.Running || runnerState.Finalizing {
+			a.executionMu.Unlock()
+			writeJSON(w, http.StatusConflict, map[string]any{"success": false, "error": "random runner session already active"})
+			return
+		}
 		if a.explorer != nil {
+			if c.DurationSeconds < 60 {
+				c.DurationSeconds = 60
+			}
 			if e = c.Validate(); e != nil {
 				a.executionMu.Unlock()
 				fail(w, http.StatusBadRequest, e)
@@ -574,25 +614,79 @@ func (a *API) monkey(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusAccepted, state)
 			return
 		}
-		s, e := a.runner.Start(c)
-		if e == nil && s.Running {
-			a.setMonkeyTargetPlan(plan)
-		}
 		a.executionMu.Unlock()
-		if errors.Is(e, runner.ErrAlreadyRunning) || errors.Is(e, runner.ErrRequestConflict) {
-			writeJSON(w, 409, s)
-			return
-		}
-		if e != nil {
-			fail(w, 400, e)
-			return
-		}
-		writeJSON(w, 202, s)
+		fail(w, http.StatusServiceUnavailable, errors.New("exploration engine unavailable"))
 	default:
 		w.Header().Set("Allow", "GET, POST, DELETE")
 		fail(w, 405, errors.New("method not allowed"))
 	}
 }
+
+func queryEngine(r *http.Request) (string, error) {
+	return normalizeEngine(r.URL.Query().Get("engine"))
+}
+
+func bodyEngine(raw json.RawMessage) (string, error) {
+	var marker struct {
+		Engine string `json:"engine"`
+	}
+	if err := json.Unmarshal(raw, &marker); err != nil {
+		return "", err
+	}
+	return normalizeEngine(marker.Engine)
+}
+
+func normalizeEngine(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "runner", "exploration":
+		return strings.ToLower(strings.TrimSpace(value)), nil
+	default:
+		return "", errors.New("engine must be runner or exploration")
+	}
+}
+
+func (a *API) stopRunnerOwned(w http.ResponseWriter, r *http.Request) {
+	a.executionMu.Lock()
+	a.finishRunnerStop(w, r)
+}
+
+func runnerStopOwnsReplay(runnerWasActive bool) bool {
+	return runnerWasActive
+}
+
+func (a *API) finishRunnerStop(w http.ResponseWriter, r *http.Request) {
+	before := a.runner.State()
+	runnerWasActive := before.Running || before.Finalizing
+	var state runner.State
+	var err error
+	if owned, ok := a.runner.(interface {
+		StopOwned(string, string) (runner.State, error)
+	}); ok {
+		sessionID, ownerToken := executionCredentials(r)
+		state, err = owned.StopOwned(sessionID, ownerToken)
+	} else {
+		state, err = a.runner.Stop()
+	}
+	if err != nil {
+		a.executionMu.Unlock()
+		fail(w, http.StatusConflict, err)
+		return
+	}
+	if runnerStopOwnsReplay(runnerWasActive) {
+		if a.recordReplay != nil {
+			replay := a.recordReplay.ReplayState()
+			if replay.Running || replay.Stopping || replay.Finalizing {
+				stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_, _ = a.recordReplay.StopReplay(stopContext)
+				cancel()
+			}
+		}
+		a.clearMonkeyTargetPlan()
+	}
+	a.executionMu.Unlock()
+	writeJSON(w, http.StatusOK, state)
+}
+
 func (a *API) pushConfig(w http.ResponseWriter, r *http.Request) {
 	if !requireControlHeader(w, r) {
 		return

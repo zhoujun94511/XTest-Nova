@@ -116,9 +116,9 @@ func (r *cliRunner) apps(ctx context.Context, invocation Invocation) error {
 func (r *cliRunner) monkey(ctx context.Context, invocation Invocation) error {
 	switch invocation.MonkeyAction {
 	case "status":
-		return r.showJSON(ctx, http.MethodGet, "/v1/monkey/runs/current", nil, formatSession)
+		return r.showJSON(ctx, http.MethodGet, monkeyEndpoint(invocation.Engine), nil, formatSession)
 	case "stop":
-		return r.stopOwned(ctx, "/v1/monkey/runs/current")
+		return r.stopOwned(ctx, monkeyEndpoint(invocation.Engine))
 	case "report":
 		return r.showJSON(ctx, http.MethodGet, "/v1/monkey/report", nil, formatVerdict)
 	case "start":
@@ -164,9 +164,19 @@ func (r *cliRunner) explore(ctx context.Context, invocation Invocation) error {
 func monkeyStartBody(invocation Invocation) map[string]any {
 	body := traversalGuardBody(invocation)
 	body["package"] = invocation.PackageName
-	body["durationSeconds"] = invocation.DurationSeconds
+	body["durationSeconds"] = floorDurationSeconds(invocation.DurationSeconds)
 	body["throttleMillis"] = throttleOrDefault(invocation.ThrottleMillis)
+	if invocation.Engine != "" {
+		body["engine"] = invocation.Engine
+	}
 	return body
+}
+
+func monkeyEndpoint(engine string) string {
+	if engine == "" {
+		return "/v1/monkey/runs/current"
+	}
+	return "/v1/monkey/runs/current?engine=" + url.QueryEscape(engine)
 }
 
 func exploreStartBody(invocation Invocation) map[string]any {
@@ -176,9 +186,16 @@ func exploreStartBody(invocation Invocation) map[string]any {
 	body["enableScroll"] = true
 	body["enableBacktrack"] = true
 	body["recoverPopups"] = true
-	body["durationSeconds"] = invocation.DurationSeconds
+	body["durationSeconds"] = floorDurationSeconds(invocation.DurationSeconds)
 	body["intervalMillis"] = throttleOrDefault(invocation.ThrottleMillis)
 	return body
+}
+
+func floorDurationSeconds(seconds int) int {
+	if seconds < 60 {
+		return 60
+	}
+	return seconds
 }
 
 func throttleOrDefault(millis int) int {

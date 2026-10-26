@@ -58,12 +58,13 @@ func (c *Config) normalize() error {
 	if c.RequestID == "" {
 		c.RequestID = fmt.Sprintf("explore-%d", time.Now().UnixNano())
 	}
-	if c.DurationSeconds < 0 || c.DurationSeconds > 604800 {
-		return errors.New("durationSeconds must be between 1 and 604800 when set")
+	if c.DurationSeconds > 604800 {
+		return errors.New("durationSeconds must not exceed 604800")
 	}
-	if c.MaxSteps == 0 && c.DurationSeconds == 0 {
-		c.MaxSteps = 100
+	if c.DurationSeconds < 60 {
+		c.DurationSeconds = 60
 	}
+	c.MaxSteps = 0
 	if c.IntervalMillis == 0 {
 		c.IntervalMillis = 250
 	}
@@ -75,9 +76,6 @@ func (c *Config) normalize() error {
 	}
 	if c.InputStrategy.MaxLength == 0 {
 		c.InputStrategy.MaxLength = defaultInputMaxLength
-	}
-	if c.DurationSeconds == 0 && (c.MaxSteps < 1 || c.MaxSteps > 10000) {
-		return errors.New("maxSteps must be between 1 and 10000")
 	}
 	if c.IntervalMillis < 100 || c.IntervalMillis > 60000 {
 		return errors.New("intervalMillis must be between 100 and 60000")

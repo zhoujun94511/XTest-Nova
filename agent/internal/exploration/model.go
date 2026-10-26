@@ -221,9 +221,10 @@ func walkNodeContext(node *xmlNode, targetPackage string, rules Rules, seed int6
 	}
 	if clickable && !editable {
 		x, y := bounds.Center()
+		text, description := inheritedControlLabel(node.Text, node.Description, firstNonEmpty(labels...))
 		analysis.Actions = append(analysis.Actions, Action{
-			ID: actionID("tap", node, label), Type: "tap", X: x, Y: y, Text: node.Text,
-			Description: node.Description, ResourceID: node.ResourceID, Class: node.Class, Bounds: bounds,
+			ID: actionID("tap", node, label), Type: "tap", X: x, Y: y, Text: text,
+			Description: description, ResourceID: node.ResourceID, Class: node.Class, Bounds: bounds,
 			Recovery: isRecoveryText(label, rules),
 		})
 	}
@@ -402,6 +403,9 @@ func parseBounds(value string) (Bounds, bool) {
 }
 
 func allowed(text, description, resourceID string, rules Rules) bool {
+	if isLanguageSwitch(Action{Text: text, Description: description, ResourceID: resourceID}) {
+		return false
+	}
 	haystack := strings.ToLower(strings.Join([]string{text, description, resourceID}, " "))
 	for _, value := range append(append([]string{}, defaultDeniedText...), rules.DenyText...) {
 		if normalized := strings.ToLower(strings.TrimSpace(value)); normalized != "" && strings.Contains(haystack, normalized) {
@@ -427,6 +431,24 @@ func allowed(text, description, resourceID string, rules Rules) bool {
 func stableText(value string) string {
 	value = strings.ToLower(strings.Join(strings.Fields(value), " "))
 	return digitsPattern.ReplaceAllString(value, "#")
+}
+
+// inheritedControlLabel copies the first child label onto a clickable parent
+// that exposes no text of its own. Otherwise every empty parent shares one
+// semantic key and a single control is selected on every page.
+func inheritedControlLabel(text, description, childLabel string) (string, string) {
+	if strings.TrimSpace(text) != "" || strings.TrimSpace(description) != "" {
+		return text, description
+	}
+	childLabel = strings.TrimSpace(childLabel)
+	runes := []rune(childLabel)
+	if len(runes) == 0 {
+		return text, description
+	}
+	if len(runes) > 32 {
+		childLabel = string(runes[:32])
+	}
+	return text, childLabel
 }
 
 func firstNonEmpty(values ...string) string {

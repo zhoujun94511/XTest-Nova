@@ -100,6 +100,15 @@ func TestDocumentMentioningAdvertisementIsNotAnAdWithoutDismissControl(t *testin
 	}
 }
 
+func TestFacebookAudienceNetworkActivityIsAKnownAd(t *testing.T) {
+	if !isKnownAdActivity("com.shorts.wave.drama/com.facebook.ads.AudienceNetworkActivity") {
+		t.Fatal("Facebook audience network activity was not recognized")
+	}
+	if isKnownAdActivity("com.example/com.facebook.katana.LoginActivity") {
+		t.Fatal("Facebook app activity was classified as an ad")
+	}
+}
+
 func TestKnownAdActivityUsesSmallTopCornerControlWithoutLabel(t *testing.T) {
 	hierarchy := `<hierarchy><node package="com.example" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]" enabled="true" visible-to-user="true"><node package="com.example" class="android.widget.ImageView" bounds="[972,48][1056,132]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
 	policy := SpecialHandling{}
@@ -115,15 +124,57 @@ func TestKnownAdActivityUsesSmallTopCornerControlWithoutLabel(t *testing.T) {
 	}
 }
 
-func TestKnownAdActivityWaitsForCountdownBeforeBackFallback(t *testing.T) {
+func TestRewardedAdWithoutCloseNodeTapsTopEndImmediately(t *testing.T) {
 	hierarchy := `<hierarchy><node package="com.ad.sdk" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]" enabled="true" visible-to-user="true"><node package="com.ad.sdk" class="android.widget.TextView" text="5" bounds="[990,60][1040,110]" enabled="true" visible-to-user="true"/></node></hierarchy>`
 	policy := SpecialHandling{}
 	if err := policy.normalize(); err != nil {
 		t.Fatal(err)
 	}
 	event, found, err := inspectSpecialActivity(hierarchy, "com.example", "com.ad.sdk", "com.ad.sdk/com.mbridge.msdk.reward.player.MBRewardVideoActivity", policy)
-	if err != nil || !found || event.Kind != "ad" || event.Outcome != "wait" || event.Action != nil || event.FallbackAction == nil || event.FallbackAction.Type != "back" {
+	if err != nil || !found || event.Kind != "ad" || event.AdType != adTypeRewarded || event.Outcome != "action" || event.Action == nil || event.Action.Type != "tap" {
 		t.Fatalf("event = %#v, found=%v, err=%v", event, found, err)
+	}
+	if event.Action.X < 900 || event.Action.Y > 220 || event.FallbackAction == nil || event.FallbackAction.Type != "back" || event.WaitLimitSeconds != 0 {
+		t.Fatalf("dismiss = %#v fallback = %#v wait = %d", event.Action, event.FallbackAction, event.WaitLimitSeconds)
+	}
+}
+
+func TestVisibleLoadFailureRetriesInsteadOfUsingOffscreenControls(t *testing.T) {
+	hierarchy := `<hierarchy><node package="live.shorttv.apps" class="android.widget.FrameLayout" bounds="[0,0][1080,2400]" enabled="true" visible-to-user="true"><node package="live.shorttv.apps" class="android.widget.TextView" text="รหัสข้อผิดพลาด: 90002" bounds="[180,1134][900,1210]" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.TextView" text="ลองอีกครั้ง" bounds="[72,1360][1008,1504]" clickable="true" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.TextView" text="สมัครสมาชิก" bounds="[2000,100][2600,180]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
+	policy := SpecialHandling{}
+	if err := policy.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	event, found, err := inspectSpecialActivity(hierarchy, "live.shorttv.apps", "live.shorttv.apps", "live.shorttv.apps/.MainActivity", policy)
+	if err != nil || !found || event.Kind != "load_failure" || event.Outcome != "action" || event.Action == nil || event.Action.Text != "ลองอีกครั้ง" {
+		t.Fatalf("event=%#v found=%v err=%v", event, found, err)
+	}
+	if event.Action.X > 1080 {
+		t.Fatalf("retry action left the visible page: %#v", event.Action)
+	}
+}
+
+func TestRewardTaskListWithCloseIconIsNotAFullScreenAd(t *testing.T) {
+	hierarchy := `<hierarchy><node package="live.shorttv.apps" class="android.widget.FrameLayout" bounds="[0,0][1156,2510]" enabled="true" visible-to-user="true"><node package="live.shorttv.apps" class="android.widget.TextView" text="看广告领奖励" bounds="[40,200][700,280]" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.ImageView" resource-id="live.shorttv.apps:id/close_iv" bounds="[1081,468][1132,519]" clickable="true" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.TextView" text="发现" bounds="[0,2300][200,2400]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
+	policy := SpecialHandling{}
+	if err := policy.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	event, found, err := inspectSpecialActivity(hierarchy, "live.shorttv.apps", "live.shorttv.apps", "live.shorttv.apps/.MainActivity", policy)
+	if err != nil || found {
+		t.Fatalf("reward task list was handled as a special scene: %#v found=%v err=%v", event, found, err)
+	}
+}
+
+func TestPurchaseFailureDialogTapsCloseNotFeedback(t *testing.T) {
+	hierarchy := `<hierarchy><node package="live.shorttv.apps" class="android.widget.FrameLayout" bounds="[144,861][1012,1745]" enabled="true" visible-to-user="true"><node package="live.shorttv.apps" class="android.widget.ImageView" resource-id="live.shorttv.apps:id/close_iv" content-desc="Close" bounds="[868,861][1012,1005]" clickable="true" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.TextView" text="充值失败" bounds="[216,1278][940,1357]" enabled="true" visible-to-user="true"/><node package="live.shorttv.apps" class="android.widget.TextView" text="反馈" resource-id="live.shorttv.apps:id/feedback_button" bounds="[216,1565][940,1673]" clickable="true" enabled="true" visible-to-user="true"/></node></hierarchy>`
+	policy := SpecialHandling{}
+	if err := policy.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	event, found, err := inspectSpecialActivity(hierarchy, "live.shorttv.apps", "live.shorttv.apps", "live.shorttv.apps/.ImmersionActivity", policy)
+	if err != nil || !found || event.Kind != "purchase_failure" || event.Outcome != "action" || event.Action == nil || event.Action.ResourceID != "live.shorttv.apps:id/close_iv" {
+		t.Fatalf("event=%#v found=%v err=%v", event, found, err)
 	}
 }
 
@@ -199,21 +250,6 @@ func TestRewardExitConfirmationSelectsGiveUpNotContinueWatching(t *testing.T) {
 	event, found, err := inspectSpecialActivity(hierarchy, "com.example", "com.example", "com.example/com.mbridge.msdk.reward.player.MBRewardVideoActivity", policy)
 	if err != nil || !found || event.AdType != adTypeRewarded || event.AdPhase != adPhaseConfirm || event.Action == nil || event.Action.Text != "放弃奖励" {
 		t.Fatalf("event = %#v, found=%v, err=%v", event, found, err)
-	}
-}
-
-func TestAdTypeWaitBudgets(t *testing.T) {
-	if got := adWaitLimitSeconds(adTypeAppOpen, 75); got != 15 {
-		t.Fatalf("app-open wait = %d", got)
-	}
-	if got := adWaitLimitSeconds(adTypeInterstitial, 75); got != 20 {
-		t.Fatalf("interstitial wait = %d", got)
-	}
-	if got := adWaitLimitSeconds(adTypePlayable, 75); got != 45 {
-		t.Fatalf("playable wait = %d", got)
-	}
-	if got := adWaitLimitSeconds(adTypeRewarded, 75); got != 75 {
-		t.Fatalf("rewarded wait = %d", got)
 	}
 }
 
@@ -325,6 +361,20 @@ func TestOnboardingFallsBackToHorizontalSwipe(t *testing.T) {
 	event, found, err := inspectSpecial(hierarchy, "com.example", "com.example", policy)
 	if err != nil || !found || event.Kind != "onboarding" || event.Action == nil || event.Action.Type != "swipe" || event.Action.Direction != "left" || event.Action.X <= event.Action.EndX {
 		t.Fatalf("event = %#v, found=%v, err=%v", event, found, err)
+	}
+	event, found, err = inspectSpecialActivity(hierarchy, "com.example", "com.example", "com.example/.LanguageActivity", policy)
+	if err != nil || found {
+		t.Fatalf("language page was advanced as onboarding: %#v found=%v err=%v", event, found, err)
+	}
+	launch := `<hierarchy><node package="com.example" class="android.widget.TextView" text="Skip" bounds="[900,40][1040,140]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="中文" bounds="[100,500][400,700]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="English" bounds="[500,500][900,700]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="Continue" bounds="[400,2100][680,2200]" clickable="true" enabled="true" visible-to-user="true"/></hierarchy>`
+	event, found, err = inspectSpecialActivity(launch, "com.example", "com.example", "com.example/.MainActivity", policy)
+	if err != nil || found {
+		t.Fatalf("first-launch language page was advanced as onboarding: %#v found=%v err=%v", event, found, err)
+	}
+	withTitle := `<hierarchy><node package="com.example" class="android.widget.ImageView" bounds="[40,40][140,140]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="Welcome" bounds="[100,180][400,280]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="Skip" bounds="[900,40][1040,140]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="中文" bounds="[100,500][400,700]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.TextView" text="English" bounds="[500,500][900,700]" clickable="true" enabled="true" visible-to-user="true"/><node package="com.example" class="android.widget.Button" text="Continue" bounds="[400,2100][680,2200]" clickable="true" enabled="true" visible-to-user="true"/></hierarchy>`
+	event, found, err = inspectSpecialActivity(withTitle, "com.example", "com.example", "com.example/.MainActivity", policy)
+	if err != nil || found {
+		t.Fatalf("language list beside another control was advanced as onboarding: %#v found=%v err=%v", event, found, err)
 	}
 }
 

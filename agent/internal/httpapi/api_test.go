@@ -694,7 +694,8 @@ func TestConsolePreservesMutationAndReloadStopContracts(t *testing.T) {
 	}
 	appScript := string(app)
 	for _, marker := range []string{
-		"if (!model.traversalState) await refreshTraversal(true)",
+		"if (!model.runnerState) await refreshRunner(true)",
+		"if (!model.explorationState) await refreshExploration(true)",
 		"if (!model.recordState) await refreshRecordReplay('record', true)",
 		"if (!model.replayState) await refreshRecordReplay('replay', true)",
 		"if (!model.performanceState) await refreshPerformance(true)",
@@ -848,8 +849,10 @@ func TestEmbeddedConsole(t *testing.T) {
 			t.Fatalf("%s returned %d", path, response.Code)
 		}
 		if path == "/" {
-			if strings.Contains(response.Body.String(), "随机遍历") || strings.Contains(response.Body.String(), "智能探索") || !strings.Contains(response.Body.String(), `id="traversal-duration"`) || !strings.Contains(response.Body.String(), `id="traversal-interval"`) || !strings.Contains(response.Body.String(), `id="traversal-low-battery"`) {
-				t.Fatal("console still exposes two traversal workflows")
+			for _, marker := range []string{"随机遍历", "智能探索", `id="runner-duration"`, `id="runner-interval"`, `id="runner-low-battery"`, `data-action="runner-start"`, `id="exploration-duration"`, `id="exploration-interval"`, `id="exploration-low-battery"`, `data-action="exploration-start"`, `data-action="exploration-preview"`} {
+				if !strings.Contains(response.Body.String(), marker) {
+					t.Fatalf("console is missing %q", marker)
+				}
 			}
 			for _, label := range []string{"概览", "应用", "自动化", "性能", "产物", "诊断", "遍历", "录制与回放"} {
 				if !strings.Contains(response.Body.String(), label) {
@@ -1093,4 +1096,99 @@ func TestReplayValidationDoesNotRequireExecutionEngine(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"valid":true`) {
 		t.Fatalf("validation returned %d: %s", response.Code, response.Body.String())
 	}
+}
+
+type countingRunner struct {
+	fakeRunner
+	starts int
+}
+
+func (f *countingRunner) Start(c runner.RunConfig) (runner.State, error) {
+	f.starts++
+	return f.fakeRunner.Start(c)
+}
+
+type idleCapture struct{}
+
+func (idleCapture) Hierarchy(context.Context) (string, error) {
+	return "", errors.New("not captured")
+}
+func (idleCapture) ForegroundPackage(context.Context) (string, error) {
+	return "", errors.New("not captured")
+}
+
+func TestTraversalFormsCallTheirOwnEngines(t *testing.T) {
+	runs := &countingRunner{}
+	explorer := exploration.New(idleCapture{}, idleCapture{}, nil)
+	api := New(fakeDevice{}, runs, configstore.NewEmpty(t.TempDir()+"/config.json"), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, explorer, nil, "", false)
+	t.Cleanup(func() { _, _ = explorer.Stop(context.Background()) })
+	runnerBody := `{"package":"com.example.app","engine":"runner","durationSeconds":60,"throttleMillis":500,"renderFallbackMode":"bounded","lowBatteryExit":true,"minBatteryPercent":15,"activityMode":"none"}`
+	started := httptest.NewRecorder()
+	api.monkey(started, httptest.NewRequest(http.MethodPost, "/v1/monkey/runs/current", strings.NewReader(runnerBody)))
+	if started.Code != http.StatusAccepted || runs.starts != 1 || explorer.State().Running {
+		t.Fatalf("runner start code=%d starts=%d exploration=%v body=%s", started.Code, runs.starts, explorer.State().Running, started.Body.String())
+	}
+	blocked := httptest.NewRecorder()
+	api.monkey(blocked, httptest.NewRequest(http.MethodPost, "/v1/monkey/runs/current", strings.NewReader(`{"package":"com.example.app","durationSeconds":60,"throttleMillis":500}`)))
+	if blocked.Code != http.StatusConflict || runs.starts != 1 || explorer.State().Running {
+		t.Fatalf("default monkey while runner active code=%d starts=%d body=%s", blocked.Code, runs.starts, blocked.Body.String())
+	}
+	stopped := httptest.NewRecorder()
+	api.monkey(stopped, httptest.NewRequest(http.MethodDelete, "/v1/monkey/runs/current?engine=runner", nil))
+	if stopped.Code != http.StatusOK || runs.State().Running {
+		t.Fatalf("runner stop code=%d state=%+v", stopped.Code, runs.State())
+	}
+
+	cli := httptest.NewRecorder()
+	api.monkey(cli, httptest.NewRequest(http.MethodPost, "/v1/monkey/runs/current", strings.NewReader(`{"package":"com.example.app","durationSeconds":60,"throttleMillis":500}`)))
+	if cli.Code != http.StatusAccepted || runs.starts != 1 || !strings.Contains(cli.Body.String(), `"running":true`) {
+		t.Fatalf("default monkey code=%d starts=%d body=%s", cli.Code, runs.starts, cli.Body.String())
+	}
+	waitUntilIdle(t, explorer)
+	direct := httptest.NewRecorder()
+	api.startExploration(direct, httptest.NewRequest(http.MethodPost, "/v1/exploration/sessions", strings.NewReader(`{"package":"com.example.app","durationSeconds":60,"intervalMillis":500,"execute":true,"enableScroll":true,"enableBacktrack":true,"recoverPopups":true,"activityMode":"none","renderFallbackMode":"bounded","lowBatteryExit":true,"minBatteryPercent":15}`)))
+	if direct.Code != http.StatusAccepted || runs.starts != 1 || !strings.Contains(direct.Body.String(), `"running":true`) {
+		t.Fatalf("exploration start code=%d starts=%d body=%s", direct.Code, runs.starts, direct.Body.String())
+	}
+	again := httptest.NewRecorder()
+	api.monkey(again, httptest.NewRequest(http.MethodPost, "/v1/monkey/runs/current", strings.NewReader(runnerBody)))
+	if again.Code != http.StatusConflict || runs.starts != 1 {
+		t.Fatalf("runner start during exploration code=%d starts=%d body=%s", again.Code, runs.starts, again.Body.String())
+	}
+	view := httptest.NewRecorder()
+	api.monkey(view, httptest.NewRequest(http.MethodGet, "/v1/monkey/runs/current?engine=runner", nil))
+	if view.Code != http.StatusOK || strings.Contains(view.Body.String(), `"running":true`) {
+		t.Fatalf("runner status followed the exploration session: %s", view.Body.String())
+	}
+}
+
+func TestIdleRunnerStopLeavesTheOtherSessionAlone(t *testing.T) {
+	runs := &fakeRunner{}
+	api := &API{runner: runs, monkeyTarget: &monkeyTargetPlan{requestID: "explore-1"}}
+	response := httptest.NewRecorder()
+	api.stopRunnerOwned(response, httptest.NewRequest(http.MethodDelete, "/v1/monkey/runs/current?engine=runner", nil))
+	if response.Code != http.StatusOK || api.monkeyTarget == nil || api.monkeyTarget.requestID != "explore-1" {
+		t.Fatalf("idle runner stop code=%d plan=%v", response.Code, api.monkeyTarget)
+	}
+	runs.state.Running = true
+	api.monkeyTarget = &monkeyTargetPlan{requestID: "runner-1"}
+	active := httptest.NewRecorder()
+	api.stopRunnerOwned(active, httptest.NewRequest(http.MethodDelete, "/v1/monkey/runs/current?engine=runner", nil))
+	if active.Code != http.StatusOK || api.monkeyTarget != nil || runs.state.Running {
+		t.Fatalf("active runner stop code=%d plan=%v running=%v", active.Code, api.monkeyTarget, runs.state.Running)
+	}
+}
+
+func waitUntilIdle(t *testing.T, explorer *exploration.Manager) {
+	t.Helper()
+	_, _ = explorer.Stop(context.Background())
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		state := explorer.State()
+		if !state.Running && !state.Stopping && !state.Finalizing {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("exploration did not become idle: %+v", explorer.State())
 }

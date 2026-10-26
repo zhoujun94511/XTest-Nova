@@ -7,8 +7,8 @@
                            "kind":  "jar",
                            "package":  "",
                            "target":  "/data/local/tmp/xtest-nova-runner.jar",
-                           "size":  63304,
-                           "sha256":  "5FED31FCCA6435B7DD57C6F84DC75D604563A097B18962843DF8F3220DEF9411"
+                           "size":  72512,
+                           "sha256":  "9B533404BAA6FBA896462DD406017C1487699FA4EE3217B2BA74E1CC488F86F7"
                        },
                        {
                            "name":  "companion",
@@ -17,7 +17,7 @@
                            "package":  "com.openatx.xtest.popup",
                            "target":  "/data/local/tmp/xtest-nova-companion.apk",
                            "size":  61850,
-                           "sha256":  "D022DB701DD77D824B43748112E3FA1E6D019A6F4EB3CDFA918D6B4524DFFF77",
+                           "sha256":  "42B544843459122C75CB66321BAC25F1C443057CED0E8D6ACA3B77ADCD553A34",
                            "versionCode":  30730,
                            "versionName":  "3.7.30-overlay-guide",
                            "certificateSha256":  "E49A7C6FB2EE0DBC4E6D3B6790D9DCF981D80F6B76628EB84755E7E1DA3A46DA"

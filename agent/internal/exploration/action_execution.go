@@ -49,8 +49,16 @@ func (m *Manager) executeChosen(ctx context.Context, config Config, loop *runLoo
 	cancel()
 	if err != nil {
 		m.receipts.Finish(stepID, execution.ReceiptFailed, "input_failed", err.Error(), "", "")
-		m.finish("input_failed", err.Error())
-		return loopStop
+		return m.failInput(loop, err)
+	}
+	loop.consecutiveInputFailures = 0
+	if isStartupLanguageSurface(activity) {
+		if preferred, ok := preferredStartupLanguage(analysis.Actions); ok && semanticActionKey(preferred) == semanticActionKey(action) {
+			if loop.startupLanguageAccepted == nil {
+				loop.startupLanguageAccepted = map[string]string{}
+			}
+			loop.startupLanguageAccepted[activity] = semanticActionKey(action)
+		}
 	}
 	m.receipts.Finish(stepID, execution.ReceiptExecuted, "", "", "", "")
 	m.mu.Lock()
@@ -140,6 +148,15 @@ func (m *Manager) executeAction(ctx context.Context, action Action) error {
 		return fmt.Errorf("unsupported exploration action: %s", action.Type)
 	}
 	return err
+}
+
+func (m *Manager) failInput(loop *runLoop, err error) loopSignal {
+	loop.consecutiveInputFailures++
+	if loop.consecutiveInputFailures >= maximumConsecutiveCaptureFailures {
+		m.finish("input_failed", err.Error())
+		return loopStop
+	}
+	return loopContinue
 }
 
 func waitAction(ctx context.Context, duration time.Duration) error {

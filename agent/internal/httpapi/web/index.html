@@ -121,12 +121,19 @@
       <section id="automation" class="view" aria-labelledby="automation-title">
         <div class="section-intro"><div><span class="overline">自动化测试</span><h2 id="automation-title">自动化测试</h2><p>遍历和录制回放共享当前目标应用。</p></div><label class="field module-target"><span>目标应用</span><select id="automation-package" data-package-select><option value="">请选择目标应用</option></select></label></div>
         <div class="workflow-grid">
-          <article class="panel workflow-card full-span">
-            <div class="workflow-heading"><span class="workflow-icon">T</span><div><h3>遍历</h3><p>在目标应用内按设定时长执行，到点结束。</p></div><span class="state-pill" id="traversal-state-pill">空闲</span></div>
-            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="traversal-duration" type="number" min="1" max="604800" value="60" required><span>秒</span></span></label><label class="field"><span>动作间隔</span><span class="input-unit"><input id="traversal-interval" type="number" min="50" max="60000" value="500" required><span>毫秒</span></span></label></div>
-            <div class="switch-row"><label class="switch"><input id="traversal-low-battery" type="checkbox" checked>低电量 15% 停止</label></div>
-            <div class="action-row"><button data-action="traversal-start">开始</button><button class="secondary" data-action="traversal-preview">预览动作</button><button class="danger-quiet" data-action="traversal-stop">停止</button></div>
-            <div id="traversal-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
+          <article class="panel workflow-card">
+            <div class="workflow-heading"><span class="workflow-icon">J</span><div><h3>随机遍历</h3><p>Java Runner 在目标应用内按设定时长执行，到点结束。</p></div><span class="state-pill" id="runner-state-pill">空闲</span></div>
+            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="runner-duration" type="number" min="60" max="604800" value="60" required><span>秒</span></span></label><label class="field"><span>动作间隔</span><span class="input-unit"><input id="runner-interval" type="number" min="50" max="60000" value="500" required><span>毫秒</span></span></label></div>
+            <div class="switch-row"><label class="switch"><input id="runner-low-battery" type="checkbox" checked>低电量 15% 停止</label></div>
+            <div class="action-row"><button data-action="runner-start">开始</button><button class="danger-quiet" data-action="runner-stop">停止</button></div>
+            <div id="runner-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
+          </article>
+          <article class="panel workflow-card">
+            <div class="workflow-heading"><span class="workflow-icon">E</span><div><h3>智能探索</h3><p>Go 探索在目标应用内按设定时长执行，到点结束。</p></div><span class="state-pill" id="exploration-state-pill">空闲</span></div>
+            <div class="form-grid two"><label class="field"><span>运行时长</span><span class="input-unit"><input id="exploration-duration" type="number" min="60" max="604800" value="60" required><span>秒</span></span></label><label class="field"><span>动作间隔</span><span class="input-unit"><input id="exploration-interval" type="number" min="100" max="60000" value="500" required><span>毫秒</span></span></label></div>
+            <div class="switch-row"><label class="switch"><input id="exploration-low-battery" type="checkbox" checked>低电量 15% 停止</label></div>
+            <div class="action-row"><button data-action="exploration-start">开始</button><button class="secondary" data-action="exploration-preview">预览动作</button><button class="danger-quiet" data-action="exploration-stop">停止</button></div>
+            <div id="exploration-output" class="structured-output compact-output"><p class="empty-state">尚未运行。</p></div>
           </article>
 
           <article class="panel workflow-card full-span">
@@ -252,6 +259,6 @@
   <script defer src="assets/js/package-selector.js?v=3"></script>
   <script defer src="assets/js/remote-control.js?v=2"></script>
   <script defer src="assets/js/performance.js?v=2"></script>
-  <script defer src="assets/js/app.js?v=9"></script>
+  <script defer src="assets/js/app.js?v=10"></script>
 </body>
 </html>

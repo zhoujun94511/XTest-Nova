@@ -24,7 +24,20 @@ func parseMonkey(args []string) (Invocation, error) {
 	}
 	invocation := Invocation{Kind: Monkey, JSON: jsonOutput, MonkeyAction: action}
 	switch action {
-	case "status", "stop", "report":
+	case "status", "stop":
+		if len(positionals) != 0 {
+			return Invocation{}, fmt.Errorf("usage: xtest-nova-agent monkey %s [--engine runner|exploration]", action)
+		}
+		engine, err := takeEngine(flags)
+		if err != nil {
+			return Invocation{}, err
+		}
+		if len(flags) != 0 {
+			return Invocation{}, fmt.Errorf("usage: xtest-nova-agent monkey %s [--engine runner|exploration]", action)
+		}
+		invocation.Engine = engine
+		return invocation, nil
+	case "report":
 		if len(positionals) != 0 || len(flags) != 0 {
 			return Invocation{}, fmt.Errorf("usage: xtest-nova-agent monkey %s", action)
 		}
@@ -295,7 +308,7 @@ func parseFlags(args []string) (map[string]string, []string, error) {
 		switch name {
 		case "execute", "low-battery":
 			flags[name] = "true"
-		case "package", "duration", "name", "task", "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases":
+		case "package", "duration", "name", "task", "engine", "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases":
 			if index+1 >= len(args) || strings.HasPrefix(args[index+1], "--") {
 				return nil, nil, fmt.Errorf("--%s requires a value", name)
 			}
@@ -321,6 +334,9 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 			if err != nil || seconds < 1 || seconds > 604800 {
 				return fmt.Errorf("--duration must be between 1 and 604800 seconds")
 			}
+			if seconds < 60 {
+				seconds = 60
+			}
 			invocation.DurationSeconds = seconds
 		case "name":
 			if invocation.Kind != Record && invocation.Kind != Replay {
@@ -337,7 +353,7 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 				return fmt.Errorf("unknown flag \"--execute\"")
 			}
 			invocation.Execute = true
-		case "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases", "low-battery":
+		case "engine", "throttle", "render", "min-battery", "activity-mode", "activities", "control-blacklist", "target-cases", "low-battery":
 			starting := (invocation.Kind == Monkey && invocation.MonkeyAction == "start") || (invocation.Kind == Explore && invocation.Action == "start")
 			if !starting {
 				return fmt.Errorf("unknown flag \"--%s\"", name)
@@ -356,10 +372,24 @@ func applyTaskFlags(invocation *Invocation, flags map[string]string, packageRequ
 			return err
 		}
 	}
-	if invocation.Kind == Monkey && invocation.MonkeyAction == "start" && invocation.DurationSeconds == 0 {
-		return fmt.Errorf("--duration is required")
+	if ((invocation.Kind == Monkey && invocation.MonkeyAction == "start") || (invocation.Kind == Explore && invocation.Action == "start")) && invocation.DurationSeconds < 60 {
+		invocation.DurationSeconds = 60
 	}
 	return nil
+}
+
+func takeEngine(flags map[string]string) (string, error) {
+	value, ok := flags["engine"]
+	if !ok {
+		return "", nil
+	}
+	delete(flags, "engine")
+	switch value {
+	case "runner", "exploration":
+		return value, nil
+	default:
+		return "", fmt.Errorf("--engine must be runner or exploration")
+	}
 }
 
 func applyTraversalFlags(invocation *Invocation, flags map[string]string) error {
@@ -368,10 +398,23 @@ func applyTraversalFlags(invocation *Invocation, flags map[string]string) error 
 	invocation.LowBatteryExit = true
 	invocation.MinBattery = 15
 	invocation.ActivityMode = "none"
+	if invocation.Kind == Monkey {
+		engine, err := takeEngine(flags)
+		if err != nil {
+			return err
+		}
+		invocation.Engine = engine
+	} else if _, ok := flags["engine"]; ok {
+		return fmt.Errorf("unknown flag \"--engine\"")
+	}
+	minThrottle := 100
+	if invocation.Kind == Monkey && invocation.Engine == "runner" {
+		minThrottle = 50
+	}
 	if value, ok := flags["throttle"]; ok {
 		millis, err := strconv.Atoi(value)
-		if err != nil || millis < 100 || millis > 60000 {
-			return fmt.Errorf("--throttle must be between 100 and 60000 milliseconds")
+		if err != nil || millis < minThrottle || millis > 60000 {
+			return fmt.Errorf("--throttle must be between %d and 60000 milliseconds", minThrottle)
 		}
 		invocation.ThrottleMillis = millis
 	}

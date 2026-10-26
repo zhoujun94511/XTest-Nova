@@ -164,6 +164,24 @@ func (m *Manager) refreshCountsLocked() {
 	}
 }
 
+// blockPendingTapLocked stops the tap that opened the current failure dialog
+// from being selected again on the page underneath.
+func (m *Manager) blockPendingTapLocked(loop *runLoop) {
+	if loop == nil || loop.pending < 0 || loop.pending >= len(m.steps) {
+		return
+	}
+	step := m.steps[loop.pending]
+	if step.Action.Type != "tap" || isVisibleBackControl(step.Action) {
+		return
+	}
+	fromSemantic := step.From
+	if fromNode := m.nodes[step.From]; fromNode != nil {
+		fromSemantic = fromNode.semantic
+	}
+	m.blockEdgeLocked(fromSemantic, semanticActionKey(step.Action))
+	loop.pendingNoteBlocked = true
+}
+
 func (m *Manager) blockEdgeLocked(state, action string) {
 	key := explorationEdgeKey(state, action)
 	if !m.blockedEdges[key] {

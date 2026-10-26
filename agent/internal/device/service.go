@@ -204,8 +204,7 @@ var foregroundPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`mResumedActivity[^\n]*? ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)`),
 	regexp.MustCompile(`mCurrentFocus=[^\n]*? ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)`),
 }
-var windowBlockPattern = regexp.MustCompile(`Window\{([0-9a-fA-F]+)[^\n]*? ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)`)
-var windowSequencePattern = regexp.MustCompile(`mSeq=(\d+)`)
+var windowBlockPattern = regexp.MustCompile(`Window\{([^ }\n]+)[^\n]*? ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)`)
 var activityForegroundPattern = regexp.MustCompile(`(?:topResumedActivity|mResumedActivity|ResumedActivity)[^\n]*ActivityRecord\{[^ ]+ [^ ]+ ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)`)
 
 func (s *Service) ForegroundPackage(ctx context.Context) (string, error) {
@@ -241,10 +240,11 @@ func (s *Service) ForegroundActivity(ctx context.Context) (string, error) {
 	return "", nil
 }
 
-// ForegroundFocus returns the resumed component and that window's relayout
-// sequence. Component selection matches ForegroundActivity: the resumed
-// activity wins over the current focus window. A missing sequence leaves the
-// version empty and does not fail foreground detection.
+// ForegroundFocus returns the resumed component and that window's token.
+// Component selection matches ForegroundActivity: the resumed activity wins
+// over the current focus window. The token comes only from dumpsys window
+// windows. A missing token leaves the version empty. This never calls an
+// unfiltered dumpsys window, which stalls on some Android 16 builds.
 func (s *Service) ForegroundFocus(ctx context.Context) (component, windowVersion string, err error) {
 	windowDump, err := s.command(ctx, "dumpsys", "window", "windows")
 	if err != nil {
@@ -275,43 +275,11 @@ func componentFromWindowDump(dump string) (string, bool) {
 	return "", false
 }
 
-func (s *Service) versionForComponent(ctx context.Context, dump, component string) string {
-	token := windowTokenForComponent(dump, component)
-	if token != "" {
-		if version := windowSequence(dump, token); version != "" {
-			return version
-		}
-	}
-	full, err := s.command(ctx, "dumpsys", "window")
-	if err != nil {
-		return ""
-	}
-	if token == "" {
-		token = windowTokenForComponent(full, component)
-	}
-	if token == "" {
-		return ""
-	}
-	return windowSequence(full, token)
-}
-
-func windowSequence(dump, token string) string {
-	needle := "Window{" + token
-	rest := dump
-	for {
-		index := strings.Index(rest, needle)
-		if index < 0 {
-			return ""
-		}
-		block := rest[index:]
-		if next := strings.Index(block[len(needle):], "\n  Window "); next >= 0 {
-			block = block[:len(needle)+next]
-		}
-		if match := windowSequencePattern.FindStringSubmatch(block); len(match) == 2 {
-			return match[1]
-		}
-		rest = rest[index+len(needle):]
-	}
+// versionForComponent returns the Window{token} of the selected component from
+// the dump already collected. mSeq is intentionally unused: some builds omit
+// it, and reading it required a second full window dump.
+func (s *Service) versionForComponent(_ context.Context, dump, component string) string {
+	return windowTokenForComponent(dump, component)
 }
 
 func windowTokenForComponent(dump, component string) string {

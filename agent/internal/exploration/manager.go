@@ -46,37 +46,54 @@ const (
 )
 
 type runLoop struct {
-	pending                 int
-	pendingNoteBlocked      bool
-	escalationArmed         string
-	escalationCoolState     string
-	escalationCooldownUntil int
-	specialAttempts         map[string]int
-	specialCooldownUntil    map[string]time.Time
-	specialWaitStarted      map[string]time.Time
-	externalAttempts        map[string]int
-	settleUntil             time.Time
-	settleGeneration        pageGeneration
-	lastOnTarget            pageGeneration
-	settleForeground        string
-	emptyCaptures           int
-	exhaustedFingerprint    string
-	exhaustedCaptures       int
-	actionAttemptNumber     int
-	initialSettleUntil      time.Time
-	startupGeneration       pageGeneration
-	startupReleased         bool
-	adActive                bool
-	adEncounterSequence     int
-	adStartedAt             time.Time
-	nextBattery             time.Time
-	renderActivity          string
-	renderAttempts          int
-	screenWidth             int
-	screenHeight            int
-	restartedActivity       string
-	escapeActivity          string
-	escapeAttempts          int
+	pending                  int
+	pendingNoteBlocked       bool
+	escalationArmed          string
+	escalationCoolState      string
+	escalationCooldownUntil  time.Time
+	specialAttempts          map[string]int
+	specialCooldownUntil     map[string]time.Time
+	specialWaitStarted       map[string]time.Time
+	externalAttempts         map[string]int
+	settleUntil              time.Time
+	settleGeneration         pageGeneration
+	lastOnTarget             pageGeneration
+	settleForeground         string
+	emptyCaptures            int
+	exhaustedFingerprint     string
+	exhaustedCaptures        int
+	actionAttemptNumber      int
+	initialSettleUntil       time.Time
+	startupGeneration        pageGeneration
+	startupReleased          bool
+	adActive                 bool
+	adEncounterSequence      int
+	adStartedAt              time.Time
+	nextBattery              time.Time
+	renderActivity           string
+	renderAttempts           int
+	screenWidth              int
+	screenHeight             int
+	restartedActivity        string
+	escapeActivity           string
+	escapeAttempts           int
+	suppressErrorScroll      bool
+	purchaseBlocked          bool
+	samePageSwipes           map[string]int
+	backEscapeState          string
+	ladderCooldownUntil      time.Time
+	homeResumeAfter          time.Time
+	surfaceHold              map[string]surfaceHold
+	allowColdStart           bool
+	consecutiveInputFailures int
+	consecutiveParseFailures int
+	startupLanguageAccepted  map[string]string
+	noProgress               map[string]int
+	stuckSemantic            string
+	stuckActivity            string
+	stuckBackSent            string
+	stuckReady               bool
+	stuckRelaunch            bool
 }
 
 type Manager struct {
@@ -100,6 +117,7 @@ type Manager struct {
 	activities           map[string]struct{}
 	inputTried           map[string]bool
 	inputFields          map[string]bool
+	activityActionSeen   map[string]map[string]bool
 	stopRequested        bool
 	root                 string
 	cancel               context.CancelFunc
@@ -275,6 +293,7 @@ func (m *Manager) Start(config Config) (State, error) {
 	m.activities = map[string]struct{}{}
 	m.inputTried = map[string]bool{}
 	m.inputFields = map[string]bool{}
+	m.activityActionSeen = map[string]map[string]bool{}
 	m.stopRequested = false
 	m.root = ""
 	m.cancel = cancel
@@ -368,15 +387,20 @@ func (m *Manager) run(ctx context.Context, config Config, done chan struct{}) {
 		}
 	}()
 	consecutiveUnstableCaptures := 0
+	consecutiveCaptureFailures := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
+		if m.stopIfDurationElapsed(config) {
+			return
+		}
 		foreground, activity, windowVersion, hierarchy, err := m.capture(ctx)
 		if err != nil {
 			if errors.Is(err, errUnstableCapture) {
+				consecutiveCaptureFailures = 0
 				consecutiveUnstableCaptures++
 				m.mu.Lock()
 				m.state.UnstableCaptures++
@@ -390,13 +414,39 @@ func (m *Manager) run(ctx context.Context, config Config, done chan struct{}) {
 				}
 				continue
 			}
+			consecutiveUnstableCaptures = 0
+			consecutiveCaptureFailures++
+			if consecutiveCaptureFailures < maximumConsecutiveCaptureFailures {
+				if err := waitAction(ctx, time.Duration(config.IntervalMillis)*time.Millisecond); err != nil {
+					return
+				}
+				continue
+			}
 			m.finish("safety_stop", err.Error())
 			return
 		}
 		consecutiveUnstableCaptures = 0
-		if loop.restartedActivity != "" && time.Now().Before(loop.settleUntil) {
-			if err := waitAction(ctx, time.Duration(config.IntervalMillis)*time.Millisecond); err != nil {
-				return
+		consecutiveCaptureFailures = 0
+		if isHandoffSurface(foreground, activity) {
+			if loop.surfaceHold == nil {
+				loop.surfaceHold = map[string]surfaceHold{}
+			}
+			hold := loop.surfaceHold[activity]
+			action, until := nextSurfaceRecovery(time.Now(), hold.until)
+			loop.surfaceHold[activity] = surfaceHold{until: until}
+			switch action {
+			case "wait":
+				if err := waitAction(ctx, time.Duration(config.IntervalMillis)*time.Millisecond); err != nil {
+					return
+				}
+			default:
+				m.mu.Lock()
+				m.blockPendingTapLocked(loop)
+				m.mu.Unlock()
+				if err := m.pressBack(ctx); err != nil {
+					m.finish("safety_stop", fmt.Sprintf("leave handoff surface: %v", err))
+					return
+				}
 			}
 			continue
 		}
@@ -423,7 +473,7 @@ func (m *Manager) run(ctx context.Context, config Config, done chan struct{}) {
 		}
 		// Special-scene actions and controlled relaunches often land before the
 		// next page is ready. Keep inspecting special scenes above, and build
-		// the ordinary graph once the activity or window relayout sequence changes.
+		// the ordinary graph once the activity or focused window token changes.
 		// The previous deadline remains the upper bound when neither changes.
 		currentGeneration := pageGeneration{activity: activity, windowVersion: windowVersion}
 		previousOnTarget := loop.lastOnTarget
@@ -439,8 +489,25 @@ func (m *Manager) run(ctx context.Context, config Config, done chan struct{}) {
 		}
 		analysis, err := AnalyzeWithInputStrategy(hierarchy, config.Package, config.Rules, config.Seed, config.InputStrategy)
 		if err != nil {
+			loop.consecutiveParseFailures++
+			if loop.consecutiveParseFailures < maximumConsecutiveCaptureFailures {
+				if err := waitAction(ctx, time.Duration(config.IntervalMillis)*time.Millisecond); err != nil {
+					return
+				}
+				continue
+			}
 			m.finish("safety_stop", err.Error())
 			return
+		}
+		loop.consecutiveParseFailures = 0
+		if loop.suppressErrorScroll {
+			kept := analysis.Actions[:0]
+			for _, action := range analysis.Actions {
+				if action.Type != "swipe" {
+					kept = append(kept, action)
+				}
+			}
+			analysis.Actions = kept
 		}
 		analysis.Activity = activity
 		analysis.Fingerprint = scopedFingerprint(analysis.Fingerprint, activity)
@@ -486,11 +553,6 @@ func (m *Manager) run(ctx context.Context, config Config, done chan struct{}) {
 		node := m.recordPageLocked(config, &analysis, activity, loop)
 		if m.durationElapsedLocked(config) {
 			m.finishLocked("duration_elapsed", "")
-			m.mu.Unlock()
-			return
-		}
-		if stepBudgetReached(config, m.state.Steps) {
-			m.finishLocked("max_steps", "")
 			m.mu.Unlock()
 			return
 		}

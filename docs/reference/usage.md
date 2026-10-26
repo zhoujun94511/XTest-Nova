@@ -23,7 +23,7 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 | 前台应用 | `xtest-nova-agent foreground` | 输出当前前台包名 |
 | 应用 | `xtest-nova-agent apps list`、`info <包名>`、`launch <包名>` | 列出、查看或启动应用 |
 | 截图 | `xtest-nova-agent screenshot <文件>` | 把当前屏幕 PNG 写到 `/data/local/tmp`、`/sdcard` 或 `/storage/emulated/0` |
-| 启动 Monkey | `xtest-nova-agent monkey start --package <包名> --duration <秒>` | 启动同一次遍历会话。未写可选参数时，间隔 500 毫秒、纯渲染策略有界、低电量 15% 停止、活动范围不限制 |
+| 启动 Monkey | `xtest-nova-agent monkey start --package <包名> --duration <秒> [--engine exploration\|runner]` | 启动同一次遍历会话。省略 `--engine` 或写 `exploration` 进入 Go 探索；`runner` 进入 Java Runner。未写其他参数时，间隔 500 毫秒、纯渲染策略有界、低电量 15% 停止、活动范围不限制 |
 | Monkey 结论 | `xtest-nova-agent monkey report` | 输出本次运行的通过 / 失败 / 未测结论 |
 | 探索 | `xtest-nova-agent explore preview`、`start`、`status`、`stop` | `start` 必须带 `--package`；只有再带 `--execute` 才会点击。不带 `--execute` 时，`--json` 会带 `previewOnly: true`。执行时使用与 Monkey 相同的间隔、渲染、低电量和范围参数；不写 `--duration` 时按步数结束，默认 100 步 |
 | 录制 | `xtest-nova-agent record start`、`status`、`stop`、`cases` | `start` 需要 `--package` 和 `--name` |
@@ -40,16 +40,17 @@ XTest Nova 使用可维护的 Agent、Runner、Companion 分层架构，对外�
 
 | 参数 | 含义 | 缺省 |
 |------|------|------|
-| `--throttle <毫秒>` | 两次动作之间的固定间隔，范围 100–60000 | 500 |
+| `--throttle <毫秒>` | 两次动作之间的固定间隔。Go 探索为 100–60000，`--engine runner` 为 50–60000 | 500 |
+| `--engine exploration\|runner` | 只用于 `monkey`。`exploration` 进入 Go 探索，`runner` 进入 Java Runner。`status` 和 `stop` 同样接受 | 省略时进入 Go 探索 |
 | `--render off\|bounded\|continuous` | 没有控件的 Surface/Unity 页面是否做坐标点击。`bounded` 每个 Activity 最多 5 次，`continuous` 不设这个次数 | `bounded` |
 | `--min-battery <百分比>` | 电量不高于该值时停止。`0` 关闭低电量停止 | 15，且启用低电量停止 |
 | `--activity-mode none\|allowlist\|blocklist` | 活动范围。后两种必须再写 `--activities` | `none` |
 | `--activities <列表>` | Activity 列表，逗号分隔。悬浮窗选择器里的 `.类名` 可以直接使用 | 空 |
 | `--control-blacklist <列表>` | 跳过文本、描述或资源 ID 中包含这些片段的候选控件，逗号分隔 | 空 |
 | `--target-cases <映射>` | `Activity=任务/用例`，多条用分号或中文分号分隔。用例必须已经录制并签名 | 空 |
-| `--duration <秒>` | 墙钟时长，范围 1–604800。设置后步数到上限也不会提前结束 | Monkey 必填；探索可不写 |
+| `--duration <秒>` | 墙钟时长。小于 60 秒按 60 秒执行，上限 604800 | 60 秒 |
 
-探索不写 `--duration` 时，`maxSteps` 为 0 会按 100 步结束，允许范围 1–10000。Web 控制台只保留一个遍历入口。页面上填写运行时长和动作间隔，间隔默认 500 毫秒、范围 50–60000；低电量 15% 停止可以勾选。有界渲染和空的活动范围仍随请求发出。命令行和悬浮窗仍可填写这些约束。接口省略间隔时仍默认 250 毫秒。
+Web、命令行和悬浮窗启动遍历都必须带运行时长。未填写或小于 1 分钟时按 60 秒执行，不允许不限时运行。Web 控制台、悬浮窗和命令行都可以选择引擎。随机遍历带 `engine=runner`，进入 Java Runner，间隔默认 500 毫秒、范围 50–60000。智能探索进入 Go，间隔默认 500 毫秒、范围 100–60000。命令行省略 `--engine` 时仍进入 Go 探索；`monkey status` 和 `monkey stop` 用同一个 `--engine` 查看或停止对应会话。悬浮窗在「执行引擎」里选择，默认智能探索，时长按分钟填写，范围 1–10080。低电量 15% 停止可以勾选。有界渲染和空的活动范围仍随请求发出。探索接口省略间隔时仍默认 250 毫秒。
 
 `server -d --stop` 明确定义为停止，不隐式重启。需要重启时先执行停止命令，再执行
 `server -d`，避免升级脚本出现双进程竞态。只推送二进制文件不会安装或启动任何 APK；执行

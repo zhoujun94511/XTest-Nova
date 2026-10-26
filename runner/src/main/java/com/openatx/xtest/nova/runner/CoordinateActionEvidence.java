@@ -85,7 +85,7 @@ final class CoordinateActionEvidence {
         pending = null;
         recovering = sample;
         return event("coordinate_action_result", sample, activity,
-                ",\"outcome\":\"external\",\"externalPackage\":\"" + Main.Guard.escape(foreground) +
+                ",\"outcome\":\"external\",\"externalPackage\":\"" + Guard.escape(foreground) +
                 "\",\"elapsedMillis\":" + duration(sample, elapsedMillis), "external");
     }
 
@@ -97,7 +97,7 @@ final class CoordinateActionEvidence {
         String outcome = specialKind.isEmpty() ? "target" : "special";
         if ("target".equals(outcome)) lastTargetResultAt = elapsedMillis;
         return event("coordinate_action_result", sample, activity,
-                ",\"outcome\":\"" + outcome + "\",\"specialKind\":\"" + Main.Guard.escape(specialKind) +
+                ",\"outcome\":\"" + outcome + "\",\"specialKind\":\"" + Guard.escape(specialKind) +
                 "\",\"elapsedMillis\":" + duration(sample, elapsedMillis), outcome);
     }
 
@@ -122,7 +122,7 @@ final class CoordinateActionEvidence {
         return new Event(state, activity,
                 ",\"coordinateActionId\":" + sample.id + ",\"gesture\":\"" + sample.gesture +
                 "\",\"zone\":\"" + sample.zone + "\",\"originActivity\":\"" +
-                Main.Guard.escape(sample.activity) + "\",\"renderSignal\":\"" + sample.source + "\"" + extra,
+                Guard.escape(sample.activity) + "\",\"renderSignal\":\"" + sample.source + "\"" + extra,
                 outcome, sample.zone, sample.activity + "|" + sample.source);
     }
 

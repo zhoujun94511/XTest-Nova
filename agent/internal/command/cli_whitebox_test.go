@@ -56,7 +56,6 @@ func TestParseRejectsUnsafeOrIncompleteCommands(t *testing.T) {
 		{"stop"},
 		{"shell"},
 		{"term"},
-		{"monkey", "start", "--package", "com.example.app"},
 		{"monkey", "start", "--duration", "10"},
 		{"explore", "start"},
 		{"explore", "preview", "--execute"},

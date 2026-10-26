@@ -12,7 +12,7 @@ final class AdScenePolicy {
     }
 
     private static final String[] ACTIVITY_MARKERS = {
-            "com.google.android.gms.ads.adactivity", "com.bytedance.sdk.openadsdk.activity.", "com.qq.e.ads.",
+            "com.google.android.gms.ads.adactivity", "com.facebook.ads.", "com.bytedance.sdk.openadsdk.activity.", "com.qq.e.ads.",
             "com.applovin.adview.", "com.unity3d.services.ads.adunit.", "com.ironsource.sdk.controller.",
             "com.inmobi.ads.rendering.", "com.mbridge.msdk.", "com.vungle.ads.", "com.chartboost.sdk.",
             "com.sigmob.sdk.", "sg.bigo.ads.", "com.huawei.openalliance.ad.", "com.miui.systemadsolution.",
@@ -61,12 +61,12 @@ final class AdScenePolicy {
         return new Scene(type, phase, wait);
     }
 
-    static Main.NodeExplorer.Node findExplicitDismiss(List<Main.NodeExplorer.Node> nodes, String foreground, String phase) {
+    static NodeExplorer.Node findExplicitDismiss(List<NodeExplorer.Node> nodes, String foreground, String phase) {
         String[] targets = "confirm_exit".equals(phase) ? EXIT_MARKERS : DISMISS_MARKERS;
-        Main.NodeExplorer.Node viewport = largest(nodes, foreground), best = null;
+        NodeExplorer.Node viewport = largest(nodes, foreground), best = null;
         long bestArea = Long.MAX_VALUE;
         int bestScore = -1;
-        for (Main.NodeExplorer.Node node : nodes) {
+        for (NodeExplorer.Node node : nodes) {
             if (!sameWindow(node, foreground) || !node.validArea() || "false".equals(node.value("enabled")) || "false".equals(node.value("visible-to-user"))) continue;
             String label = normalized(node.value("text") + " " + node.value("content-desc") + " " + node.value("resource-id"));
             if ("confirm_exit".equals(phase) && containsAny(label, CONTINUE_MARKERS)) continue;
@@ -81,14 +81,14 @@ final class AdScenePolicy {
         return best;
     }
 
-    static int dismissX(Main.NodeExplorer.Node node) {
+    static int dismissX(NodeExplorer.Node node) {
         if (node.value("resource-id").toLowerCase(Locale.ROOT).contains("close") && node.right - node.left > 2 * (node.bottom - node.top)) {
             return node.right - (node.bottom - node.top) / 2;
         }
         return node.centerX();
     }
 
-    static boolean isEmbeddedNode(Main.NodeExplorer.Node node) {
+    static boolean isEmbeddedNode(NodeExplorer.Node node) {
         String value = normalized(node.value("resource-id") + " " + node.value("content-desc") + " " + node.value("class"));
         return value.contains("advertisement-card") || value.contains("ad_iframe") || value.contains("native_ad") ||
                 value.contains("nativead") || value.contains("banner_ad") || value.contains("bannerad") ||
@@ -96,14 +96,14 @@ final class AdScenePolicy {
                 value.contains("adview") || value.contains(":id/ad_") || value.contains("/id/ad_");
     }
 
-    static Main.NodeExplorer.Node findCornerDismiss(List<Main.NodeExplorer.Node> nodes, String foreground) {
-        Main.NodeExplorer.Node viewport = largest(nodes, foreground);
+    static NodeExplorer.Node findCornerDismiss(List<NodeExplorer.Node> nodes, String foreground) {
+        NodeExplorer.Node viewport = largest(nodes, foreground);
         if (viewport == null || viewport.right - viewport.left < 400 || viewport.bottom - viewport.top < 600) return null;
         int width = viewport.right - viewport.left, height = viewport.bottom - viewport.top;
         long maxArea = (long) width * height / 30;
-        Main.NodeExplorer.Node best = null;
+        NodeExplorer.Node best = null;
         int bestScore = -1;
-        for (Main.NodeExplorer.Node node : nodes) {
+        for (NodeExplorer.Node node : nodes) {
             if (!sameWindow(node, foreground) || !node.validArea() || !"true".equals(node.value("clickable")) ||
                     !"true".equals(node.value("enabled")) || "false".equals(node.value("visible-to-user")) ||
                     "true".equals(node.value("password")) || "android.webkit.WebView".equals(node.value("class"))) continue;
@@ -121,15 +121,15 @@ final class AdScenePolicy {
         return best;
     }
 
-    private static boolean sameWindow(Main.NodeExplorer.Node node, String foreground) {
+    private static boolean sameWindow(NodeExplorer.Node node, String foreground) {
         String packageName = node.value("package");
         return packageName.isEmpty() || foreground == null || foreground.isEmpty() || foreground.equals(packageName);
     }
 
-    private static Main.NodeExplorer.Node largest(List<Main.NodeExplorer.Node> nodes, String foreground) {
-        Main.NodeExplorer.Node viewport = null;
+    private static NodeExplorer.Node largest(List<NodeExplorer.Node> nodes, String foreground) {
+        NodeExplorer.Node viewport = null;
         long viewportArea = 0;
-        for (Main.NodeExplorer.Node node : nodes) {
+        for (NodeExplorer.Node node : nodes) {
             if (!sameWindow(node, foreground) || !node.validArea()) continue;
             long area = area(node);
             if (area > viewportArea) { viewport = node; viewportArea = area; }
@@ -137,7 +137,7 @@ final class AdScenePolicy {
         return viewport;
     }
 
-    private static long area(Main.NodeExplorer.Node node) {
+    private static long area(NodeExplorer.Node node) {
         return (long) (node.right - node.left) * (node.bottom - node.top);
     }
 
@@ -165,10 +165,11 @@ final class AdScenePolicy {
 
     static void selfTest() {
         if (!isKnownActivity("com.example/com.google.android.gms.ads.AdActivity")) throw new AssertionError("AdMob activity was not recognized");
+        if (!isKnownActivity("com.example/com.facebook.ads.AudienceNetworkActivity")) throw new AssertionError("Facebook activity was not recognized");
         if (!isKnownActivity("com.example/com.mbridge.msdk.reward.player.MBRewardVideoActivity")) throw new AssertionError("Mintegral activity was not recognized");
         if (isKnownActivity("com.example/.MainActivity")) throw new AssertionError("ordinary activity was classified as an ad");
-        Main.NodeExplorer.Node root = Main.NodeExplorer.Node.parse("<node package=\"com.example\" class=\"android.widget.FrameLayout\" bounds=\"[0,0][1080,2400]\" enabled=\"true\" visible-to-user=\"true\"/>");
-        Main.NodeExplorer.Node corner = Main.NodeExplorer.Node.parse("<node package=\"com.example\" class=\"android.widget.ImageView\" bounds=\"[972,48][1056,132]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\"/>");
+        NodeExplorer.Node root = NodeExplorer.Node.parse("<node package=\"com.example\" class=\"android.widget.FrameLayout\" bounds=\"[0,0][1080,2400]\" enabled=\"true\" visible-to-user=\"true\"/>");
+        NodeExplorer.Node corner = NodeExplorer.Node.parse("<node package=\"com.example\" class=\"android.widget.ImageView\" bounds=\"[972,48][1056,132]\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\"/>");
         if (findCornerDismiss(java.util.Arrays.asList(root, corner), "com.example") != corner) throw new AssertionError("top-corner icon was not selected");
         Scene appOpen = classify("com.example/com.google.android.gms.ads.AdActivity", "关闭广告并继续打开应用 Play Now");
         if (!"app_open".equals(appOpen.type) || appOpen.waitMillis != 8_000L) throw new AssertionError("app-open ad was not classified");
@@ -178,12 +179,12 @@ final class AdScenePolicy {
         if (!"rewarded_video".equals(rewarded.type) || rewarded.waitMillis != 15_000L) throw new AssertionError("rewarded recovery budget changed");
         Scene confirmation = classify("com.example/com.google.android.gms.ads.AdActivity", "Close Ad? You will lose your reward CLOSE RESUME");
         if (!"confirm_exit".equals(confirmation.phase)) throw new AssertionError("reward-loss confirmation was not classified");
-        Main.NodeExplorer.Node close = Main.NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"CLOSE\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[400,1200][600,1320]\"/>");
-        Main.NodeExplorer.Node resume = Main.NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"RESUME\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[620,1200][900,1320]\"/>");
-        Main.NodeExplorer.Node title = Main.NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.TextView\" text=\"Close Ad?\" clickable=\"false\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[180,900][800,1020]\"/>");
+        NodeExplorer.Node close = NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"CLOSE\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[400,1200][600,1320]\"/>");
+        NodeExplorer.Node resume = NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"RESUME\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[620,1200][900,1320]\"/>");
+        NodeExplorer.Node title = NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.TextView\" text=\"Close Ad?\" clickable=\"false\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[180,900][800,1020]\"/>");
         if (findExplicitDismiss(java.util.Arrays.asList(root, title, resume, close), "", confirmation.phase) != close) throw new AssertionError("close was not preferred over resume on reward confirmation");
-        Main.NodeExplorer.Node closeZh = Main.NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"关闭\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[400,1200][600,1320]\"/>");
-        Main.NodeExplorer.Node continueZh = Main.NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"继续\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[620,1200][900,1320]\"/>");
+        NodeExplorer.Node closeZh = NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"关闭\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[400,1200][600,1320]\"/>");
+        NodeExplorer.Node continueZh = NodeExplorer.Node.parse("<node package=\"com.google.android.gms\" class=\"android.widget.Button\" text=\"继续\" clickable=\"true\" enabled=\"true\" visible-to-user=\"true\" bounds=\"[620,1200][900,1320]\"/>");
         if (findExplicitDismiss(java.util.Arrays.asList(root, continueZh, closeZh), "", "confirm_exit") != closeZh) throw new AssertionError("Chinese close was not preferred over continue");
     }
 }

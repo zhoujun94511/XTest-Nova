@@ -1,6 +1,9 @@
 package exploration
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestCycleGuardDetectsRepeatedPeriodsAcrossPhysicalStateChurn(t *testing.T) {
 	guard := &cycleGuard{}
@@ -58,16 +61,17 @@ func TestSemanticStateIgnoresCoordinatesAndDynamicDigits(t *testing.T) {
 }
 
 func TestStallEscalationCoolsTheSameScreen(t *testing.T) {
-	if !armStallEscalation("screen", 10, 0, "") {
+	now := time.Now()
+	if !armStallEscalation("screen", now, time.Time{}, "") {
 		t.Fatal("first stall was not armed")
 	}
-	if armStallEscalation("screen", 20, 70, "screen") {
+	if armStallEscalation("screen", now, now.Add(time.Minute), "screen") {
 		t.Fatal("cooled screen was armed again")
 	}
-	if !armStallEscalation("screen", 70, 70, "screen") {
+	if !armStallEscalation("screen", now, now, "screen") {
 		t.Fatal("screen stayed cooled after the window")
 	}
-	if !armStallEscalation("other", 20, 70, "screen") {
+	if !armStallEscalation("other", now, now.Add(time.Minute), "screen") {
 		t.Fatal("a different screen stayed cooled")
 	}
 }

@@ -84,6 +84,152 @@ func TestSessionStopsAfterConsecutiveUnstableCaptures(t *testing.T) {
 	t.Fatal("unstable exploration did not converge")
 }
 
+type failingCaptureDevice struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (d *failingCaptureDevice) ForegroundPackage(context.Context) (string, error) {
+	d.mu.Lock()
+	d.calls++
+	d.mu.Unlock()
+	return "", errors.New("dumpsys timed out")
+}
+func (d *failingCaptureDevice) Hierarchy(context.Context) (string, error) {
+	return sampleHierarchy, nil
+}
+func (d *failingCaptureDevice) Run(context.Context, string, ...string) (string, error) {
+	return "", nil
+}
+func (d *failingCaptureDevice) RunBytes(context.Context, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func TestCaptureCommandFailureRetriesBeforeStopping(t *testing.T) {
+	device := &failingCaptureDevice{}
+	manager := New(device, device, device)
+	if _, err := manager.Start(Config{RequestID: "capture-retry", Package: "com.example", DurationSeconds: 60, IntervalMillis: 100, Execute: true}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		state := manager.State()
+		if !state.Running {
+			device.mu.Lock()
+			calls := device.calls
+			device.mu.Unlock()
+			if state.StopReason != "safety_stop" || calls != maximumConsecutiveCaptureFailures {
+				t.Fatalf("state=%#v calls=%d", state, calls)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("capture failures did not stop")
+}
+
+type flakyTapDevice struct {
+	mu   sync.Mutex
+	taps int
+}
+
+func (d *flakyTapDevice) ForegroundPackage(context.Context) (string, error) {
+	return "com.example", nil
+}
+func (d *flakyTapDevice) ForegroundActivity(context.Context) (string, error) {
+	return "com.example/.MainActivity", nil
+}
+func (d *flakyTapDevice) Hierarchy(context.Context) (string, error) { return sampleHierarchy, nil }
+func (d *flakyTapDevice) Run(_ context.Context, name string, args ...string) (string, error) {
+	if name == "input" && len(args) > 0 && args[0] == "tap" {
+		d.mu.Lock()
+		d.taps++
+		d.mu.Unlock()
+		return "", errors.New("input tap failed")
+	}
+	return "", nil
+}
+func (d *flakyTapDevice) RunBytes(context.Context, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func TestFailedTapIsNotRepeated(t *testing.T) {
+	device := &flakyTapDevice{}
+	manager := New(device, device, device)
+	if _, err := manager.Start(Config{RequestID: "tap-retry", Package: "com.example", DurationSeconds: 60, IntervalMillis: 100, Seed: 7, Execute: true}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		state := manager.State()
+		device.mu.Lock()
+		taps := device.taps
+		device.mu.Unlock()
+		if taps > 1 || state.StopReason == "input_failed" {
+			t.Fatalf("state=%#v taps=%d", state, taps)
+		}
+		if state.Recoveries > 0 && taps == 1 {
+			stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+			_, _ = manager.Stop(stopContext)
+			cancel()
+			return
+		}
+		if !state.Running && state.StopReason != "" && state.StopReason != "stopped" {
+			t.Fatalf("state=%#v taps=%d", state, taps)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	state := manager.State()
+	device.mu.Lock()
+	taps := device.taps
+	device.mu.Unlock()
+	t.Fatalf("state=%#v taps=%d", state, taps)
+}
+
+type emptyHierarchyDevice struct {
+	mu    sync.Mutex
+	reads int
+}
+
+func (d *emptyHierarchyDevice) ForegroundPackage(context.Context) (string, error) {
+	return "com.example", nil
+}
+func (d *emptyHierarchyDevice) Hierarchy(context.Context) (string, error) {
+	d.mu.Lock()
+	d.reads++
+	d.mu.Unlock()
+	return "", nil
+}
+func (d *emptyHierarchyDevice) Run(context.Context, string, ...string) (string, error) {
+	return "", nil
+}
+func (d *emptyHierarchyDevice) RunBytes(context.Context, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func TestHierarchyParseFailureRetriesBeforeStopping(t *testing.T) {
+	device := &emptyHierarchyDevice{}
+	manager := New(device, device, device)
+	if _, err := manager.Start(Config{RequestID: "parse-retry", Package: "com.example", DurationSeconds: 60, IntervalMillis: 100, Execute: true}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		state := manager.State()
+		if !state.Running {
+			device.mu.Lock()
+			reads := device.reads
+			device.mu.Unlock()
+			if state.StopReason != "safety_stop" || reads != maximumConsecutiveCaptureFailures {
+				t.Fatalf("state=%#v reads=%d", state, reads)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("parse failures did not stop")
+}
+
 type fakeDevice struct {
 	mu         sync.Mutex
 	foreground string
@@ -239,6 +385,11 @@ func TestExplorationReleasesOnlyAfterPersistence(t *testing.T) {
 	if _, err := manager.Start(Config{RequestID: "persist-boundary", Package: "com.example", MaxSteps: 1, IntervalMillis: 100, Execute: true}); err != nil {
 		t.Fatal(err)
 	}
+	go func() {
+		stopContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, _ = manager.Stop(stopContext)
+	}()
 	select {
 	case <-persistStarted:
 	case <-time.After(time.Second):
@@ -289,11 +440,14 @@ func TestSessionExecutesBoundedDeterministicTap(t *testing.T) {
 		t.Fatalf("start = %#v, %v", state, err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for manager.State().Steps < 1 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state = manager.State()
-	if state.Running || state.Steps != 1 || state.StopReason != "max_steps" {
+	if state.Steps < 1 || state.StopReason == "max_steps" {
 		t.Fatalf("state = %#v", state)
 	}
 	device.mu.Lock()
@@ -333,9 +487,12 @@ func TestActivityCoverageRequiresExpectedDenominator(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && manager.State().ActivityCovered < 1 {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
 	if state.ActivityCovered != 1 || state.ActivityTotal != 2 || state.ActivityCoverage == nil || *state.ActivityCoverage != 50 {
 		t.Fatalf("activity coverage = %#v", state)
@@ -350,8 +507,13 @@ func TestCompletedRequestIsIdempotentAndNextRequestCanStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && manager.State().Steps < 1 {
 		time.Sleep(time.Millisecond)
+	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := manager.Stop(stopContext); err != nil {
+		t.Fatal(err)
 	}
 	first := manager.State()
 	if repeated, err := manager.Start(config); err != nil || repeated.StartedAt == nil || !repeated.StartedAt.Equal(*first.StartedAt) {
@@ -361,9 +523,9 @@ func TestCompletedRequestIsIdempotentAndNextRequestCanStart(t *testing.T) {
 	if state, err := manager.Start(config); err != nil || !state.Running || state.RequestID != "second" {
 		t.Fatalf("second start = %#v, %v", state, err)
 	}
-	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if _, err := manager.Stop(stopContext); err != nil {
+	secondStop, cancelSecond := context.WithTimeout(context.Background(), time.Second)
+	defer cancelSecond()
+	if _, err := manager.Stop(secondStop); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -376,7 +538,7 @@ func TestRequestIDRejectsDifferentExplorationConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := config
-	changed.MaxSteps = 2
+	changed.IntervalMillis = 200
 	if _, err := manager.Start(changed); !errors.Is(err, ErrRequestConflict) {
 		t.Fatalf("same requestId with changed configuration error = %v", err)
 	}
@@ -495,11 +657,14 @@ func TestStaleObservationDoesNotReuseRejectedStepID(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && (manager.State().Steps < 1 || manager.State().StaleActions < 1) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state = manager.State()
-	if state.Running || state.StopReason != "max_steps" || state.Error != "" {
+	if state.StopReason == "max_steps" || state.Error != "" {
 		t.Fatalf("state=%+v", state)
 	}
 	if state.StaleActions != 1 || state.Steps != 1 {
@@ -567,11 +732,14 @@ func TestExternalActionIsBlockedAndTargetIsRecovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && (manager.State().Recoveries < 1 || manager.State().BlockedEdges == 0) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason != "graph_exhausted" || state.Recoveries != 1 || state.BlockedEdges == 0 {
+	if state.Recoveries < 1 || state.BlockedEdges == 0 || state.StopReason == "graph_exhausted" {
 		t.Fatalf("state = %#v", state)
 	}
 	device.mu.Lock()
@@ -595,11 +763,14 @@ func TestDFSBacktracksOnlyToKnownParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(3 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && (manager.State().Steps < 2 || manager.State().Backtracks < 1 || manager.State().DiscoveredEdges < 2) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason != "graph_exhausted" || state.Steps != 2 || state.Backtracks != 1 || state.DiscoveredStates != 2 || state.DiscoveredEdges != 2 {
+	if state.Steps < 2 || state.Backtracks < 1 || state.DiscoveredStates < 2 || state.DiscoveredEdges < 2 || state.StopReason == "graph_exhausted" {
 		t.Fatalf("state = %#v", state)
 	}
 	device.mu.Lock()
@@ -617,19 +788,28 @@ func TestDFSBacktrackExitRelaunchesOnlyTheTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) && (manager.State().Backtracks < 1 || manager.State().Recoveries < 1) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason != "graph_exhausted" || state.Backtracks != 1 || state.Recoveries != 1 {
+	if state.Backtracks < 1 || state.Recoveries < 1 || state.StopReason == "graph_exhausted" {
 		t.Fatalf("state = %#v", state)
 	}
 	device.mu.Lock()
 	defer device.mu.Unlock()
-	if len(device.commands) != 3 || device.commands[2][0] != "sh" || device.commands[2][1] != "/system/bin/monkey" {
+	var command []string
+	for _, candidate := range device.commands {
+		if len(candidate) > 1 && candidate[0] == "sh" && candidate[1] == "/system/bin/monkey" {
+			command = candidate
+			break
+		}
+	}
+	if command == nil {
 		t.Fatalf("commands = %#v", device.commands)
 	}
-	command := device.commands[2]
 	if len(command) != 7 || command[2] != "-p" || command[3] != "com.example" {
 		t.Fatalf("relaunch command = %#v", command)
 	}
@@ -771,11 +951,18 @@ func TestSessionPreprocessesConsentBeforeGraphExploration(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		state := manager.State()
+		if state.SpecialActions >= 1 && state.LastSpecial != nil && state.LastSpecial.Kind == "consent" {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason != "graph_exhausted" || state.SpecialActions != 1 || state.LastSpecial == nil || state.LastSpecial.Kind != "consent" {
+	if state.SpecialActions < 1 || state.LastSpecial == nil || state.LastSpecial.Kind != "consent" || state.StopReason == "graph_exhausted" {
 		t.Fatalf("state = %#v", state)
 	}
 }
@@ -818,14 +1005,17 @@ func TestStaleSpecialSceneIsRejectedBeforeInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(4 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for manager.State().StaleActions < 1 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state, receipts := manager.State(), manager.Receipts()
 	device.mu.Lock()
 	commands := device.commands
 	device.mu.Unlock()
-	if state.Running || state.StaleActions != 1 || state.SpecialActions != 0 || commands != 0 {
+	if state.StaleActions != 1 || state.SpecialActions != 0 || commands != 0 {
 		t.Fatalf("state=%#v commands=%d", state, commands)
 	}
 	if len(receipts) != 1 || receipts[0].Status != execution.ReceiptRejected || receipts[0].ErrorCode != "stale_observation" {
@@ -842,11 +1032,18 @@ func TestSessionCrossesKnownPermissionController(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		state := manager.State()
+		if state.SpecialActions >= 1 && state.LastSpecial != nil && state.LastSpecial.Kind == "permission" {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state := manager.State()
-	if state.Running || state.StopReason != "graph_exhausted" || state.SpecialActions != 1 || state.LastSpecial == nil || state.LastSpecial.Kind != "permission" {
+	if state.SpecialActions < 1 || state.LastSpecial == nil || state.LastSpecial.Kind != "permission" || state.StopReason == "graph_exhausted" {
 		t.Fatalf("state = %#v", state)
 	}
 }
@@ -899,11 +1096,18 @@ func TestOrdinaryStepDestinationSurvivesSpecialActionAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		steps := manager.Steps()
+		if len(steps) >= 2 && steps[0].Destination != "" {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	steps, graph := manager.Steps(), manager.Graph()
-	if len(steps) != 2 || steps[0].Destination == "" || len(graph.Edges) != 1 || graph.Edges[0].To != steps[0].Destination {
+	if len(steps) < 2 || steps[0].Destination == "" || len(graph.Edges) < 1 || graph.Edges[0].To != steps[0].Destination {
 		t.Fatalf("steps=%#v graph=%#v", steps, graph)
 	}
 }
@@ -962,6 +1166,83 @@ func TestSuccessfulExternalRecoveryResetsConsecutiveBudget(t *testing.T) {
 	}
 }
 
+const escapeSettleEmptyPage = `<hierarchy><node package="com.example" class="android.widget.FrameLayout" bounds="[0,0][100,100]" enabled="true" visible-to-user="true"/></hierarchy>`
+const escapeSettlePermissionPage = `<hierarchy><node package="com.google.android.permissioncontroller" class="android.widget.Button" text="Allow" bounds="[0,0][200,80]" clickable="true" enabled="true" visible-to-user="true"/></hierarchy>`
+
+type escapeSettleDevice struct {
+	mu         sync.Mutex
+	foreground string
+	hierarchy  string
+	commands   [][]string
+	backed     time.Time
+}
+
+func (d *escapeSettleDevice) Hierarchy(context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.hierarchy, nil
+}
+func (d *escapeSettleDevice) ForegroundPackage(context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.foreground, nil
+}
+func (d *escapeSettleDevice) ForegroundActivity(context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.foreground + "/" + d.foreground + ".DetailActivity", nil
+}
+func (d *escapeSettleDevice) Run(_ context.Context, name string, args ...string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.commands = append(d.commands, append([]string{name}, args...))
+	if name == "input" && len(args) >= 2 && args[0] == "keyevent" && args[1] == "BACK" && d.backed.IsZero() {
+		d.backed = time.Now()
+		d.foreground = "com.google.android.permissioncontroller"
+		d.hierarchy = escapeSettlePermissionPage
+	}
+	return "", nil
+}
+func (*escapeSettleDevice) RunBytes(context.Context, string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func TestEscapeSettleStillHandlesPermission(t *testing.T) {
+	device := &escapeSettleDevice{foreground: "com.example", hierarchy: escapeSettleEmptyPage}
+	manager := New(device, device, device)
+	if _, err := manager.Start(Config{RequestID: "escape-settle-permission", Package: "com.example", DurationSeconds: 30, IntervalMillis: 100, Execute: true}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	var backed time.Time
+	for backed.IsZero() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		device.mu.Lock()
+		backed = device.backed
+		device.mu.Unlock()
+	}
+	tapped := false
+	tapDeadline := backed.Add(700 * time.Millisecond)
+	for !tapped && time.Now().Before(tapDeadline) {
+		time.Sleep(10 * time.Millisecond)
+		device.mu.Lock()
+		for _, command := range device.commands {
+			if len(command) >= 2 && command[0] == "input" && command[1] == "tap" {
+				tapped = true
+			}
+		}
+		device.mu.Unlock()
+	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
+	if backed.IsZero() || !tapped {
+		device.mu.Lock()
+		defer device.mu.Unlock()
+		t.Fatalf("backed=%s tapped=%v commands=%v", backed, tapped, device.commands)
+	}
+}
+
 func TestSpecialHandlingStopsAfterBoundedAttempts(t *testing.T) {
 	device := &fakeDevice{foreground: "com.example", hierarchy: termsHierarchy}
 	manager := New(device, device, device)
@@ -969,13 +1250,27 @@ func TestSpecialHandlingStopsAfterBoundedAttempts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	deadline := time.Now().Add(12 * time.Second)
+	seenColdStart := false
+	for time.Now().Before(deadline) && !seenColdStart {
+		time.Sleep(20 * time.Millisecond)
+		state := manager.State()
+		if state.StopReason == "special_handling_failed" || state.StopReason == "max_steps" {
+			t.Fatalf("session stopped on a step budget: %#v", state)
+		}
+		device.mu.Lock()
+		for _, command := range device.commands {
+			if strings.HasPrefix(strings.Join(command, " "), "am force-stop ") {
+				seenColdStart = true
+			}
+		}
+		device.mu.Unlock()
 	}
-	state := manager.State()
-	if state.Running || state.StopReason != "special_handling_failed" || state.Steps != 2 || state.LastSpecial == nil || state.LastSpecial.Outcome != "attempt_limit" {
-		t.Fatalf("state = %#v", state)
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
+	if !seenColdStart {
+		t.Fatalf("commands=%v", device.commands)
 	}
 }
 
@@ -1073,11 +1368,18 @@ func TestSpecialStepDoesNotAttributeLandingToPendingAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(8 * time.Second)
-	for manager.State().Running && time.Now().Before(deadline) {
+	for time.Now().Before(deadline) {
+		state, steps := manager.State(), manager.Steps()
+		if state.SpecialActions >= 1 && len(steps) >= 2 && steps[0].Action.Text == "打开" && steps[0].Destination != "" {
+			break
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	stopContext, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, _ = manager.Stop(stopContext)
 	state, steps := manager.State(), manager.Steps()
-	if state.Running || state.SpecialActions < 1 || len(steps) < 2 || steps[0].Action.Text != "打开" || steps[0].Destination == "" {
+	if state.SpecialActions < 1 || len(steps) < 2 || steps[0].Action.Text != "打开" || steps[0].Destination == "" {
 		t.Fatalf("state=%#v steps=%#v", state, steps)
 	}
 	memory := loadActivityMemory(root, "com.example", 12)

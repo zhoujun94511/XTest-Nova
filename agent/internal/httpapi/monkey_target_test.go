@@ -166,6 +166,13 @@ func TestMonkeyViewFollowsTheExplorationSession(t *testing.T) {
 	if useExplorationForMonkey(exploration.State{}, runner.State{Running: true}) {
 		t.Fatal("runner session was replaced before exploration started")
 	}
+	later := started.Add(time.Minute)
+	if useExplorationForMonkey(explored, runner.State{StartedAt: &later, StopReason: "completed"}) {
+		t.Fatal("a later finished runner was hidden behind the earlier exploration")
+	}
+	if !useExplorationForMonkey(exploration.State{StartedAt: &later, StopReason: "duration_elapsed"}, runner.State{StartedAt: &started, StopReason: "completed"}) {
+		t.Fatal("a later finished exploration was hidden behind the earlier runner")
+	}
 }
 
 func TestExplorationStartPreparesTargetReplay(t *testing.T) {

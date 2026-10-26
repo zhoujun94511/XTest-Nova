@@ -10,6 +10,8 @@ final class MonkeyDraft {
     static final String RENDER_OFF = "off";
     static final String RENDER_BOUNDED = "bounded";
     static final String RENDER_CONTINUOUS = "continuous";
+    static final String ENGINE_EXPLORATION = "exploration";
+    static final String ENGINE_RUNNER = "runner";
 
     final String packageName;
     final String appLabel;
@@ -18,6 +20,7 @@ final class MonkeyDraft {
     int batteryThreshold = 15;
     String activityMode = MODE_NONE;
     String renderFallbackMode = RENDER_BOUNDED;
+    String engine = ENGINE_EXPLORATION;
     final Set<String> activities = new LinkedHashSet<>();
     final Set<String> targetActivities = new LinkedHashSet<>();
     final Set<String> blockedControls = new LinkedHashSet<>();
@@ -45,6 +48,10 @@ final class MonkeyDraft {
 
     String blockedControlSummary() {
         return blockedControls.isEmpty() ? "未设置" : "已添加 " + blockedControls.size() + " 条";
+    }
+
+    String engineSummary() {
+        return ENGINE_RUNNER.equals(engine) ? "随机遍历（Java Runner）" : "智能探索（Go）";
     }
 
     String renderFallbackSummary() {

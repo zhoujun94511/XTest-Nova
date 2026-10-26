@@ -14,8 +14,15 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 	}
 	special, specialFound, err := inspectSpecialActivity(hierarchy, config.Package, foreground, activity, config.SpecialHandling)
 	if err != nil {
-		m.finish("safety_stop", err.Error())
-		return loopStop
+		loop.consecutiveParseFailures++
+		if loop.consecutiveParseFailures >= maximumConsecutiveCaptureFailures {
+			m.finish("safety_stop", err.Error())
+			return loopStop
+		}
+		if err := waitAction(ctx, time.Duration(config.IntervalMillis)*time.Millisecond); err != nil {
+			return loopStop
+		}
+		return loopContinue
 	}
 	if specialFound && special.Kind == "ad" {
 		m.mu.Lock()
@@ -33,16 +40,36 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 		m.mu.Unlock()
 		loop.adActive = false
 	}
+	if !specialFound || special.Kind != "load_failure" {
+		loop.suppressErrorScroll = false
+	}
 	if !specialFound {
+		return loopNext
+	}
+	if special.Kind == "onboarding" && loop.stuckReady && loop.stuckActivity == activity {
 		return loopNext
 	}
 	m.mu.Lock()
 	attemptKey := special.Kind + "|" + special.Fingerprint
+	if special.Kind == "load_failure" {
+		attemptKey = "load_failure|" + activity
+	}
 	if special.Kind == "ad" {
 		// Full-screen ad WebViews animate and mutate text while the same
 		// interruption remains active. Bind the budget to the encounter,
 		// otherwise each new page fingerprint could reset the attempt cap.
 		attemptKey = fmt.Sprintf("ad|%d|%s", loop.adEncounterSequence, activity)
+	}
+	if special.Kind == "purchase_failure" {
+		// The failure copy changes between attempts. Keep one budget for the
+		// activity, and stop selecting purchase controls after the first one.
+		attemptKey = "purchase_failure|" + activity
+		loop.purchaseBlocked = true
+	}
+	if special.Kind == "load_failure" && loop.specialAttempts[attemptKey] >= 2 {
+		loop.suppressErrorScroll = true
+		m.mu.Unlock()
+		return loopNext
 	}
 	if special.Outcome == "wait" {
 		started, exists := loop.specialWaitStarted[attemptKey]
@@ -63,7 +90,6 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 			}
 			return loopContinue
 		}
-		delete(loop.specialWaitStarted, attemptKey)
 		if special.FallbackAction != nil {
 			fallback := *special.FallbackAction
 			special.Action = &fallback
@@ -71,13 +97,6 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 		}
 	} else {
 		delete(loop.specialWaitStarted, attemptKey)
-	}
-	if deadline := loop.specialCooldownUntil[attemptKey]; special.Kind == "ad" && special.Outcome != "explore" && time.Now().Before(deadline) {
-		m.mu.Unlock()
-		if err := waitAction(ctx, time.Duration(min(config.IntervalMillis, 1000))*time.Millisecond); err != nil {
-			return loopStop
-		}
-		return loopContinue
 	}
 	if loop.specialAttempts[attemptKey] > 0 && special.FallbackAction != nil {
 		fallback := *special.FallbackAction
@@ -95,7 +114,7 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 		if special.Outcome == "policy_required" {
 			reason = "policy_required"
 		}
-		if reason == "special_unhandled" && config.DurationSeconds > 0 {
+		if reason == "special_unhandled" {
 			if m.durationElapsedLocked(config) {
 				m.finishLocked("duration_elapsed", "")
 				m.mu.Unlock()
@@ -104,6 +123,7 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 			last.Outcome = "restart"
 			last.Reason = special.Reason
 			m.state.LastSpecial = &last
+			loop.allowColdStart = true
 			m.mu.Unlock()
 			return loopRestart
 		}
@@ -111,35 +131,37 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 		m.mu.Unlock()
 		return loopStop
 	}
-	if stepBudgetReached(config, m.state.Steps) {
-		m.finishLocked("max_steps", "")
-		m.mu.Unlock()
-		return loopStop
-	}
 	if loop.specialAttempts[attemptKey] >= config.SpecialHandling.MaxAttempts {
+		if special.Kind == "onboarding" {
+			loop.stuckActivity = activity
+			loop.stuckReady = true
+			last.Outcome = "explore"
+			last.Reason = "onboarding did not change; the stuck path leaves the page"
+			m.state.LastSpecial = &last
+			m.mu.Unlock()
+			return loopNext
+		}
+		if special.Kind == "purchase_failure" {
+			m.blockPendingTapLocked(loop)
+			m.mu.Unlock()
+			return loopRestart
+		}
 		if m.durationElapsedLocked(config) {
 			m.finishLocked("duration_elapsed", "")
 			m.mu.Unlock()
 			return loopStop
 		}
-		if config.DurationSeconds > 0 {
-			last.Outcome = "restart"
-			last.Reason = "special scene did not change; restarting the timed session"
-			m.state.LastSpecial = &last
-			m.mu.Unlock()
-			return loopRestart
-		}
-		last.Outcome = "attempt_limit"
-		last.Reason = "special scene did not change after bounded recovery attempts"
+		last.Outcome = "restart"
+		last.Reason = "special scene did not change; restarting the session"
 		m.state.LastSpecial = &last
-		m.finishLocked("special_handling_failed", last.Reason)
+		loop.allowColdStart = true
 		m.mu.Unlock()
-		return loopStop
+		return loopRestart
+	}
+	if special.Kind == "purchase_failure" {
+		m.blockPendingTapLocked(loop)
 	}
 	loop.specialAttempts[attemptKey]++
-	if special.Kind == "ad" {
-		loop.specialCooldownUntil[attemptKey] = time.Now().Add(2 * time.Second)
-	}
 	loop.actionAttemptNumber++
 	stepNumber := loop.actionAttemptNumber
 	stepID := fmt.Sprintf("%s:step-%06d", config.RequestID, stepNumber)
@@ -177,9 +199,9 @@ func (m *Manager) handleSpecialScene(ctx context.Context, config Config, loop *r
 	cancel()
 	if err != nil {
 		m.receipts.Finish(stepID, execution.ReceiptFailed, "input_failed", err.Error(), "", "")
-		m.finish("input_failed", err.Error())
-		return loopStop
+		return m.failInput(loop, err)
 	}
+	loop.consecutiveInputFailures = 0
 	m.receipts.Finish(stepID, execution.ReceiptExecuted, "", "", "", "")
 	loop.settleUntil = time.Now().Add(transitionSettleDuration)
 	loop.settleGeneration = pageGeneration{activity: activity, windowVersion: windowVersion}

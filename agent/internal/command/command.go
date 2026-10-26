@@ -51,6 +51,7 @@ type Invocation struct {
 	Execute            bool
 	ThrottleMillis     int
 	RenderFallbackMode string
+	Engine             string
 	LowBatteryExit     bool
 	MinBattery         int
 	ActivityMode       string

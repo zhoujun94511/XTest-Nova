@@ -32,14 +32,14 @@ final class AdaptiveScheduler {
 
     boolean observeState(String state) { return seenStates.add(state == null ? "" : state); }
 
-    boolean eligible(String activity, Main.NodeExplorer.Action action) {
+    boolean eligible(String activity, NodeExplorer.Action action) {
         if (action == null || "back".equals(action.type) || action.isScrollGesture()) return true;
         return stat(activity, action).attempts < MAX_DIRECT_ATTEMPTS_PER_ACTIVITY;
     }
 
-    Main.NodeExplorer.Action select(List<Main.NodeExplorer.Action> candidates, String activity) {
+    NodeExplorer.Action select(List<NodeExplorer.Action> candidates, String activity) {
         if (candidates == null || candidates.isEmpty()) return null;
-        List<Main.NodeExplorer.Action> ordered = new ArrayList<>(candidates);
+        List<NodeExplorer.Action> ordered = new ArrayList<>(candidates);
         ordered.sort(Comparator.comparing(action -> action.id));
         long total = 0;
         long[] weights = new long[ordered.size()];
@@ -56,12 +56,12 @@ final class AdaptiveScheduler {
         return ordered.get(ordered.size() - 1);
     }
 
-    void recordExecuted(String activity, Main.NodeExplorer.Action action) {
+    void recordExecuted(String activity, NodeExplorer.Action action) {
         if (action == null || "back".equals(action.type) || action.isScrollGesture()) return;
         stat(activity, action).attempts++;
     }
 
-    void recordTransition(String activity, Main.NodeExplorer.Action action, boolean newState, boolean activityChanged, boolean noProgress) {
+    void recordTransition(String activity, NodeExplorer.Action action, boolean newState, boolean activityChanged, boolean noProgress) {
         if (action == null || "back".equals(action.type)) return;
         Stats value = stat(activity, action);
         value.transitions++;
@@ -70,9 +70,9 @@ final class AdaptiveScheduler {
         if (noProgress) value.noProgress++;
     }
 
-    int attempts(String activity, Main.NodeExplorer.Action action) { return stat(activity, action).attempts; }
+    int attempts(String activity, NodeExplorer.Action action) { return stat(activity, action).attempts; }
 
-    private long weight(String activity, Main.NodeExplorer.Action action) {
+    private long weight(String activity, NodeExplorer.Action action) {
         Stats value = stat(activity, action);
         double novelty = value.attempts == 0 ? 4.0 : (1.0 + value.newStates * 3.0 + value.newActivities * 2.0) / (value.transitions + 1.0);
         double exploration = 2.0 / Math.sqrt(value.attempts + 1.0);
@@ -81,7 +81,7 @@ final class AdaptiveScheduler {
         return Math.max(1L, Math.round(100.0 * (novelty + exploration) * stagnation * typeFactor));
     }
 
-    private Stats stat(String activity, Main.NodeExplorer.Action action) {
+    private Stats stat(String activity, NodeExplorer.Action action) {
         String key = (activity == null ? "" : activity.toLowerCase(Locale.ROOT)) + "|" + action.id;
         return stats.computeIfAbsent(key, ignored -> new Stats());
     }

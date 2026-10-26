@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.0 — 2026-10-26
+
+- A first-launch language page selects English when that control exists, otherwise Chinese, and confirms only after the language tap succeeds. Setting, language, and locale activities are not auto-selected.
+- The same semantic state with no new edge twice is stuck. Remaining safe controls stay eligible; otherwise the session goes back once and then cold-starts under the existing 30-second cooldown. An exhausted onboarding page uses that path.
+- A handoff activity whose class name ends with Launcher is left with Back and a quiet period. It is not resumed as a home screen.
+- The overlay and CLI can select Go exploration or the Java Runner. Omitting the choice still starts Go exploration.
+- Raised the Agent size allowance to 14 MiB and the Runner package allowance to 7.5 MiB.
+
 ## 0.29.0 — 2026-10-24
 
 - Run CLI monkey, CLI exploration, the web console, and the overlay through one traversal session. A later start conflicts while a session is running, stopping, or finalizing.

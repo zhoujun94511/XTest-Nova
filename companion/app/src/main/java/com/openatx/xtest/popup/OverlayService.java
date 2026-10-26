@@ -669,16 +669,22 @@ public final class OverlayService extends Service {
 
     private void showMonkey(MonkeyDraft draft) {
         ++generation;
-        LinearLayout box = column(PANEL); box.addView(titleBar("智能遍历"));
+        LinearLayout box = column(PANEL); box.addView(titleBar("遍历"));
         TextView app = label(draft.appLabel + "\n" + draft.packageName, 14, WHITE);
         app.setPadding(dp(10), dp(6), dp(10), dp(8)); box.addView(app);
-        TextView intro = label("覆盖优先的动态随机探索；广告和最终结算页由安全策略自动处理。", 12, Color.LTGRAY);
+        TextView intro = label(MonkeyDraft.ENGINE_RUNNER.equals(draft.engine)
+                ? "随机遍历由 Java Runner 执行。广告和结算页由安全策略处理。"
+                : "智能探索按未执行控件和状态图推进。广告和结算页由安全策略处理。", 12, Color.LTGRAY);
         intro.setPadding(dp(10), 0, dp(10), dp(8)); box.addView(intro);
         NumberSetting minutes = settingNumberField("运行时长", "达到时长后自然结束，可随时手动停止。范围 1–10080。", "分钟", draft.durationMinutes);
-        NumberSetting throttle = settingNumberField("动作间隔", "两次操作之间的等待时间。范围 50–60000。", "毫秒", draft.throttleMillis);
+        String throttleRange = MonkeyDraft.ENGINE_RUNNER.equals(draft.engine) ? "范围 50–60000。" : "范围 100–60000。";
+        NumberSetting throttle = settingNumberField("动作间隔", "两次操作之间的等待时间。" + throttleRange, "毫秒", draft.throttleMillis);
         NumberSetting battery = settingNumberField("低电量保护", "电量低于该值时停止任务并保存产物。范围 1–100。", "%", draft.batteryThreshold);
         ScrollView form = new ScrollView(this); LinearLayout fields = column(PANEL);
         fields.addView(minutes.view); fields.addView(throttle.view); fields.addView(battery.view);
+        fields.addView(menuButton("执行引擎：" + draft.engineSummary(), WHITE, v -> {
+            captureMonkeyNumbers(draft, minutes.input, throttle.input, battery.input); showMonkeyEngine(draft);
+        }));
         Button scope = menuButton("Activity 范围：" + draft.scopeSummary(), WHITE, v -> {
             captureMonkeyNumbers(draft, minutes.input, throttle.input, battery.input); showActivityMode(draft);
         });
@@ -715,7 +721,7 @@ public final class OverlayService extends Service {
             try {
                 AgentClient.monkeyStart(draft.packageName, draft.durationMinutes, draft.throttleMillis, draft.batteryThreshold,
                         draft.allowedActivities(), draft.blockedActivities(), draft.targets(), draft.blockedControls(), draft.targetCases,
-                        draft.renderFallbackMode);
+                        draft.renderFallbackMode, draft.engine);
                 RecentMonkeyApps.record(this, draft.packageName);
                 runUi(() -> {
                     showMinimized();
@@ -723,6 +729,20 @@ public final class OverlayService extends Service {
                 });
             } catch (Exception error) { runUi(() -> state.setText("启动失败：" + error.getMessage())); }
         });
+    }
+
+    private void showMonkeyEngine(MonkeyDraft draft) {
+        ++generation;
+        LinearLayout box = column(PANEL); box.addView(titleBar("执行引擎"));
+        box.addView(sectionHint("选择遍历引擎", "智能探索进入 Go。随机遍历进入 Java Runner。同一时间只能跑一个。"));
+        box.addView(menuButton("智能探索（Go）", WHITE, v -> {
+            draft.engine = MonkeyDraft.ENGINE_EXPLORATION; showMonkey(draft);
+        }));
+        box.addView(menuButton("随机遍历（Java Runner）", WHITE, v -> {
+            draft.engine = MonkeyDraft.ENGINE_RUNNER; showMonkey(draft);
+        }));
+        box.addView(menuButton("返回", WHITE, v -> showMonkey(draft)));
+        replace(box, largePanelWidth(), largePanelHeight(), true, 0, 0);
     }
 
     private void showRenderFallbackMode(MonkeyDraft draft) {

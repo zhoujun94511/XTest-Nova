@@ -223,6 +223,27 @@ func TestMinorScrollableRegionIsFiltered(t *testing.T) {
 	}
 }
 
+func TestBottomTabsInheritChildLabels(t *testing.T) {
+	hierarchy := `<hierarchy>` +
+		`<node package="com.example" class="android.view.ViewGroup" bounds="[0,2200][231,2462]" clickable="true" enabled="true" visible-to-user="true"><node package="com.example" class="android.widget.TextView" text="Inbox" bounds="[40,2320][190,2400]" clickable="false" enabled="true" visible-to-user="true"/></node>` +
+		`<node package="com.example" class="android.view.ViewGroup" bounds="[462,2200][693,2462]" clickable="true" enabled="true" visible-to-user="true"><node package="com.example" class="android.widget.TextView" text="Profile" bounds="[500,2320][650,2400]" clickable="false" enabled="true" visible-to-user="true"/></node>` +
+		`</hierarchy>`
+	analysis, err := Analyze(hierarchy, "com.example", Rules{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := map[string]bool{}
+	for _, action := range analysis.Actions {
+		keys[semanticActionKey(action)] = true
+		if action.Description != "Inbox" && action.Description != "Profile" {
+			t.Fatalf("action = %#v", action)
+		}
+	}
+	if len(keys) != 2 {
+		t.Fatalf("keys = %#v", keys)
+	}
+}
+
 func stringReplace(value, old, replacement string) string {
 	for i := 0; i+len(old) <= len(value); i++ {
 		if value[i:i+len(old)] == old {

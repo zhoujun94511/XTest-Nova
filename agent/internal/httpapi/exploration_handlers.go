@@ -62,13 +62,18 @@ func (a *API) bindExplorationTargets(config *exploration.Config) error {
 }
 
 func useExplorationForMonkey(explored exploration.State, runnerState runner.State) bool {
+	explorationActive := explored.Running || explored.Stopping || explored.Finalizing
+	runnerActive := runnerState.Running || runnerState.Finalizing
+	if explorationActive != runnerActive {
+		return explorationActive
+	}
 	if explored.StartedAt == nil {
 		return false
 	}
-	if explored.Running || explored.Stopping || explored.Finalizing {
+	if runnerState.StartedAt == nil {
 		return true
 	}
-	return !runnerState.Running && !runnerState.Finalizing
+	return !explored.StartedAt.Before(*runnerState.StartedAt)
 }
 
 func (a *API) explorationReport(w http.ResponseWriter, r *http.Request) {

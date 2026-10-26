@@ -43,11 +43,14 @@ final class AgentClient {
 
     static String monkeyStart(String pkg, int minutes, int throttle, int minBattery, String allowActivities,
                               String blockActivities, String targetActivities, String blockedControls, String targetCases,
-                              String renderFallbackMode) throws IOException {
+                              String renderFallbackMode, String engine) throws IOException {
         String mode = !allowActivities.trim().isEmpty() ? "allowlist" : (!blockActivities.trim().isEmpty() ? "blocklist" : "none");
         String activities = "allowlist".equals(mode) ? allowActivities : blockActivities;
+        String selected = "runner".equals(engine) ? "runner" : "exploration";
+        if (!"runner".equals(selected) && throttle < 100) throttle = 100;
         String response = request(COMPANION, "POST", "/monkey", "{\"package\":\"" + escape(pkg)
-                + "\",\"durationSeconds\":" + (minutes * 60)
+                + "\",\"engine\":\"" + selected + "\""
+                + ",\"durationSeconds\":" + (minutes * 60)
                 + ",\"throttleMillis\":" + throttle
                 + ",\"lowBatteryExit\":true,\"minBatteryPercent\":" + minBattery
                 + ",\"activityMode\":\"" + mode + "\",\"activities\":" + stringArray(activities)
