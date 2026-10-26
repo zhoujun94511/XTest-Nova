@@ -9,7 +9,9 @@
   let videoSocket = null;
   let controlSocket = null;
   let reconnectTimer = 0;
-  let generation = 0;
+  let qualityTimer = 0;
+  let screenToken = 0;
+  let controlToken = 0;
   let sequence = 1;
   let receivedBytes = 0;
   let decoder = null;
@@ -48,6 +50,7 @@
       this.pps = null;
       this.codec = '';
       this.timestamp = 0;
+      this.frameTimes = [];
       this.awaitingKey = true;
       if (!window.VideoDecoder) throw new Error('当前浏览器不支持 WebCodecs H.264 解码，请使用最新版 Chrome 或 Edge');
       this.videoDecoder = new VideoDecoder({
@@ -91,9 +94,10 @@
       this.prefix.forEach(item => units.push(startCode, item));
       units.push(startCode, nal);
       this.prefix = [];
-      if (!key && this.videoDecoder.decodeQueueSize > 4) return;
-      this.videoDecoder.decode(new EncodedVideoChunk({type: key ? 'key' : 'delta', timestamp: this.timestamp, data: join(units)}));
-      this.timestamp += 33333;
+      if (!key && this.videoDecoder.decodeQueueSize > 12) return;
+      const timestamp = Math.max(this.timestamp + 1, Math.round(performance.now() * 1000));
+      this.timestamp = timestamp;
+      this.videoDecoder.decode(new EncodedVideoChunk({type: key ? 'key' : 'delta', timestamp, data: join(units)}));
     }
 
     configure() {
@@ -105,15 +109,19 @@
     }
 
     draw(frame) {
+      const now = performance.now();
+      this.frameTimes.push(now);
+      while (this.frameTimes.length && now - this.frameTimes[0] > 1000) this.frameTimes.shift();
       if (this.canvas.width !== frame.displayWidth || this.canvas.height !== frame.displayHeight) {
         this.canvas.width = frame.displayWidth;
         this.canvas.height = frame.displayHeight;
-        q('#remote-resolution').textContent = `${frame.displayWidth} × ${frame.displayHeight}`;
+        fitPreview(this.canvas);
       }
+      q('#remote-resolution').textContent = `${frame.displayWidth} × ${frame.displayHeight} · ${this.frameTimes.length} 帧/秒`;
       this.context.drawImage(frame, 0, 0, this.canvas.width, this.canvas.height);
       frame.close();
       q('#remote-placeholder').hidden = true;
-      setState('#remote-video-state', '画面已连接', 'running');
+      setState('#remote-video-state', `画面已连接 · ${qualityLabel()}`, 'running');
     }
 
     close() {
@@ -124,15 +132,24 @@
 
   const socketURL = path => `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${path}`;
 
-  const scheduleReconnect = currentGeneration => {
-    if (!active || currentGeneration !== generation || reconnectTimer) return;
-    reconnectTimer = window.setTimeout(() => { reconnectTimer = 0; connect(); }, 1200);
+  const qualityLabel = () => ({low: '流畅', normal: '均衡', high: '高清', original: '原始'})[q('#remote-quality').value] || '均衡';
+
+  const fitPreview = canvas => {
+    const stage = canvas?.parentElement;
+    if (!stage || canvas.width < 2 || canvas.height < 2) return;
+    const scale = Math.min(stage.clientWidth / canvas.width, stage.clientHeight / canvas.height);
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    canvas.style.width = `${Math.round(canvas.width * scale)}px`;
+    canvas.style.height = `${Math.round(canvas.height * scale)}px`;
   };
 
   const closeSockets = () => {
-    generation += 1;
+    screenToken += 1;
+    controlToken += 1;
     if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    if (qualityTimer) window.clearTimeout(qualityTimer);
     reconnectTimer = 0;
+    qualityTimer = 0;
     const screen = videoSocket;
     const control = controlSocket;
     videoSocket = null;
@@ -144,61 +161,83 @@
     pointerId = null;
   };
 
-  const connect = () => {
-    if (!active || videoSocket || controlSocket) return;
-    const currentGeneration = ++generation;
+  const openScreen = () => {
+    if (!active || videoSocket) return;
+    const token = ++screenToken;
+    const quality = q('#remote-quality').value;
     receivedBytes = 0;
-    q('#remote-placeholder').hidden = false;
-    q('#remote-placeholder strong').textContent = '正在连接设备画面';
-    setState('#remote-video-state', '画面连接中');
-    setState('#remote-control-state', '控制连接中');
+    const firstFrame = q('#remote-resolution').textContent === '等待首帧';
+    if (firstFrame) {
+      q('#remote-placeholder').hidden = false;
+      q('#remote-placeholder strong').textContent = '正在连接设备画面';
+    }
+    setState('#remote-video-state', `正在切换到${qualityLabel()}`);
     try { decoder = new H264CanvasDecoder(q('#remote-canvas')); }
     catch (error) { setState('#remote-video-state', error.message, 'error'); return; }
-
-    const quality = q('#remote-quality').value;
-    videoSocket = new WebSocket(socketURL(`/scrcpy/screen/${quality}`));
-    videoSocket.binaryType = 'arraybuffer';
-    videoSocket.onmessage = event => {
-      if (!(event.data instanceof ArrayBuffer)) return;
+    const screen = new WebSocket(socketURL(`/scrcpy/screen/${quality}`));
+    videoSocket = screen;
+    screen.binaryType = 'arraybuffer';
+    screen.onmessage = event => {
+      if (videoSocket !== screen || token !== screenToken || !(event.data instanceof ArrayBuffer)) return;
       receivedBytes += event.data.byteLength;
       q('#remote-traffic').textContent = `已接收 ${formatBytes(receivedBytes)}`;
       try { decoder.append(event.data); }
       catch (error) { setState('#remote-video-state', error.message, 'error'); }
     };
-    videoSocket.onerror = () => {
+    screen.onerror = () => {
+      if (videoSocket !== screen) return;
       setState('#remote-video-state', '画面连接失败，请重新认证', 'error');
       notify('画面连接失败，请确认登录仍然有效后重新认证', 'error');
     };
-    videoSocket.onclose = () => {
+    screen.onclose = () => {
+      if (videoSocket !== screen) return;
       videoSocket = null;
       if (decoder) { decoder.close(); decoder = null; }
-      setState('#remote-video-state', active ? '画面重连中' : '画面未连接');
-      if (active && currentGeneration === generation) {
-        closeSockets();
-        scheduleReconnect(generation);
-      }
+      if (!active || token !== screenToken) return;
+      setState('#remote-video-state', '画面重连中');
+      reconnectTimer = window.setTimeout(() => { reconnectTimer = 0; openScreen(); }, 1200);
     };
+  };
 
-    controlSocket = new WebSocket(socketURL('/scrcpy/control/original'));
-    controlSocket.onopen = () => setState('#remote-control-state', '控制已连接', 'running');
-    controlSocket.onerror = () => {
+  const openControl = () => {
+    if (!active || controlSocket) return;
+    const token = ++controlToken;
+    setState('#remote-control-state', '控制连接中');
+    const control = new WebSocket(socketURL('/scrcpy/control/original'));
+    controlSocket = control;
+    control.onopen = () => { if (controlSocket === control) setState('#remote-control-state', '控制已连接', 'running'); };
+    control.onerror = () => {
+      if (controlSocket !== control) return;
       setState('#remote-control-state', '控制连接失败，请重新认证', 'error');
       notify('控制连接失败，请确认登录仍然有效后重新认证', 'error');
     };
-    controlSocket.onclose = () => {
+    control.onclose = () => {
+      if (controlSocket !== control) return;
       controlSocket = null;
-      setState('#remote-control-state', active ? '控制重连中' : '控制未连接');
-      if (active && currentGeneration === generation) {
-        closeSockets();
-        scheduleReconnect(generation);
-      }
+      if (!active || token !== controlToken) return;
+      setState('#remote-control-state', '控制重连中');
+      window.setTimeout(() => { if (active && token === controlToken) openControl(); }, 1200);
     };
-    controlSocket.onmessage = event => {
+    control.onmessage = event => {
+      if (controlSocket !== control) return;
       let message;
       try { message = JSON.parse(event.data); } catch { return; }
       if (message.success === false) { notify(message.error || '远程控制失败', 'error'); return; }
       if (message.type === 'clipboard') { q('#remote-text').value = message.text || ''; notify('已读取设备剪贴板'); }
     };
+  };
+
+  const connect = () => { openScreen(); openControl(); };
+
+  const replaceScreen = () => {
+    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    reconnectTimer = 0;
+    screenToken += 1;
+    const screen = videoSocket;
+    videoSocket = null;
+    if (decoder) { decoder.close(); decoder = null; }
+    if (screen) screen.close();
+    openScreen();
   };
 
   const send = message => {
@@ -226,6 +265,8 @@
     const canvas = q('#remote-canvas');
     if (!stage || stage.dataset.remoteReady) return;
     stage.dataset.remoteReady = '1';
+    fitPreview(canvas);
+    new ResizeObserver(() => fitPreview(canvas)).observe(stage);
     canvas.addEventListener('pointerdown', event => {
       event.preventDefault();
       pointerId = Math.min(9, Math.max(0, event.pointerId || 0));
@@ -258,8 +299,9 @@
     });
     q('#remote-quality').addEventListener('change', () => {
       if (!active) return;
-      closeSockets();
-      connect();
+      if (qualityTimer) window.clearTimeout(qualityTimer);
+      setState('#remote-video-state', `正在切换到${qualityLabel()}`);
+      qualityTimer = window.setTimeout(() => { qualityTimer = 0; replaceScreen(); }, 250);
     });
     document.addEventListener('click', handleCommand);
   };

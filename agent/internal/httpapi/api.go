@@ -276,6 +276,7 @@ func (a *API) Primary() http.Handler {
 	a.registerDeviceProcessRoutes(m)
 	a.registerTaskSessionRoutes(m)
 	a.registerUtilityRoutes(m)
+	a.registerOverlayRoutes(m)
 	a.registerStreamingRoutes(m)
 	a.registerWebConsoleRoutes(m)
 	a.registerScrcpyRoutes(m)

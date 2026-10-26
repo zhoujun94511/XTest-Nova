@@ -196,7 +196,10 @@
   const renderState = state => {
     const host = q('#perf-output'); host.replaceChildren();
     const grid = el('div', {className: 'data-grid'});
-    [['状态', state.running ? '采集中' : '已停止'], ['样本', state.rows ?? 0], ['失败采样', state.failedSamples ?? 0], ['部分样本', state.partialSamples ?? 0], ['采样间隔', `${state.intervalSeconds || 1} 秒`], ['持续时间', state.startedAt ? formatDuration(Date.now() - new Date(state.startedAt).getTime()) : '—']].forEach(([label, value]) => {
+    const started = state.startedAt ? new Date(state.startedAt).getTime() : NaN;
+    const ended = state.endedAt ? new Date(state.endedAt).getTime() : Date.now();
+    const duration = Number.isFinite(started) ? formatDuration(ended - started) : '—';
+    [['状态', state.running ? '采集中' : '已停止'], ['样本', state.rows ?? 0], ['失败采样', state.failedSamples ?? 0], ['部分样本', state.partialSamples ?? 0], ['采样间隔', `${state.intervalSeconds || 1} 秒`], ['持续时间', duration]].forEach(([label, value]) => {
       const card = el('div', {className: 'data-item'}); card.append(el('span', {text: label}), el('strong', {text: value})); grid.append(card);
     });
     host.append(grid);
@@ -256,5 +259,16 @@
     const summary = q('#perf-summary');
     summary.hidden = true; summary.replaceChildren();
   };
-  window.NovaPerformanceView = {render, renderSummary, reset};
+
+  const showIdle = () => {
+    reset();
+    const metrics = q('#perf-metrics');
+    metrics.replaceChildren(el('p', {className: 'empty-state', text: '等待开始性能采集。'}));
+    q('#perf-trends').replaceChildren();
+    const errors = q('#perf-errors');
+    errors.hidden = true;
+    errors.replaceChildren();
+    q('#perf-output').replaceChildren();
+  };
+  window.NovaPerformanceView = {render, renderSummary, reset, showIdle};
 })();

@@ -105,13 +105,18 @@
 
   const setButtonBusy = (button, busy) => {
     if (!button) return;
+    const icon = button.classList.contains('icon-button');
     if (busy) {
-      button.dataset.label = button.textContent;
-      button.textContent = '处理中…';
+      if (!icon) {
+        button.dataset.label = button.textContent;
+        button.textContent = '处理中…';
+      }
       button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
     } else {
-      button.textContent = button.dataset.label || button.textContent;
+      if (!icon && button.dataset.label) button.textContent = button.dataset.label;
       button.disabled = false;
+      button.removeAttribute('aria-busy');
       delete button.dataset.label;
     }
   };

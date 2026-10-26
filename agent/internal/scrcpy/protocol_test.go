@@ -17,9 +17,16 @@ func TestOptions(t *testing.T) {
 	if err != nil || low.FPS != 10 || low.MaxSize != 480 || low.BitRate != 1_000_000 {
 		t.Fatalf("low options = %#v, %v", low, err)
 	}
+	high, err := optionsFor("high")
+	if err != nil || high.FPS != 60 || high.MaxSize != 2048 || high.BitRate != 24_000_000 {
+		t.Fatalf("high options = %#v, %v", high, err)
+	}
 	original, err := optionsFor("original")
-	if err != nil || original.FPS != 0 || original.MaxSize != 0 {
+	if err != nil || original.FPS != 0 || original.MaxSize != 0 || original.BitRate != 64_000_000 {
 		t.Fatalf("original options = %#v, %v", original, err)
+	}
+	if strings.Contains(strings.Join(serverArgs(original, 1), " "), "max_fps=") {
+		t.Fatal("original definition still caps the frame rate")
 	}
 	if _, err := optionsFor("unknown"); err == nil {
 		t.Fatal("unknown definition accepted")

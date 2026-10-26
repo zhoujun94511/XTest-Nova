@@ -18,8 +18,8 @@ button:where(:not(.nav-item):not(.quick-action)):hover:not(:disabled) { filter: 
 button.secondary { border-color: var(--border); color: var(--text); background: var(--surface-raised); }
 button.danger-quiet { border-color: rgba(255, 140, 150, .28); color: var(--danger); background: rgba(255, 140, 150, .07); }
 button.text-button { min-height: auto; padding: 5px 2px; color: var(--blue); background: transparent; }
-button.icon-button { width: 40px; padding: 0; border-color: var(--border); color: var(--text-secondary); background: var(--surface); font-size: 20px; }
-button.icon-button.subtle { width: 32px; min-height: 32px; background: transparent; }
+button.icon-button { flex: 0 0 40px; width: 40px; min-width: 40px; overflow: hidden; padding: 0; border-color: var(--border); color: var(--text-secondary); background: var(--surface); font-size: 20px; }
+button.icon-button.subtle { flex-basis: 32px; width: 32px; min-width: 32px; min-height: 32px; background: transparent; }
 .action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 16px; }
 .action-row > button { width: auto; flex: 0 0 auto; }
 
@@ -94,10 +94,10 @@ details summary::-webkit-details-marker { display: none; }
 .app-scope-field { flex: 0 0 132px; }
 .filter-row { flex-wrap: wrap; margin-bottom: 18px; }
 .filter-row > .field { flex: 1 1 180px; }
-.input-unit { display: flex; align-items: center; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.input-unit { display: flex; align-items: center; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); }
 .input-unit:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(120, 169, 255, .1); }
-.input-unit input { border: 0; background: transparent; box-shadow: none !important; }
-.input-unit span { padding-right: 11px; color: var(--text-muted); }
+.input-unit input { flex: 1 1 auto; width: auto; min-width: 0; border: 0; background: transparent; box-shadow: none !important; }
+.input-unit span { flex: 0 0 auto; padding-right: 11px; color: var(--text-muted); white-space: nowrap; }
 .form-grid { display: grid; gap: 12px; }
 .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -212,9 +212,9 @@ details summary::-webkit-details-marker { display: none; }
 .remote-toolbar .state-pill { margin-left: 0; }
 .remote-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 390px); gap: 18px; align-items: start; }
 .remote-screen-panel { padding: 14px; }
-.remote-stage { position: relative; display: grid; min-height: 620px; max-height: calc(100vh - 250px); place-items: center; overflow: hidden; border: 1px solid #182a3e; border-radius: var(--radius-md); background: #02060b; outline: none; user-select: none; touch-action: none; }
+.remote-stage { position: relative; display: flex; align-items: center; justify-content: center; height: max(620px, calc(100vh - 250px)); overflow: hidden; border: 1px solid #182a3e; border-radius: var(--radius-md); background: #02060b; outline: none; user-select: none; touch-action: none; }
 .remote-stage:focus-visible { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(120, 169, 255, .12); }
-.remote-stage canvas { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100vh - 280px); cursor: crosshair; touch-action: none; }
+.remote-stage canvas { display: block; flex: 0 0 auto; width: auto; min-width: 0; max-width: 100%; height: 100%; min-height: 0; max-height: 100%; cursor: crosshair; touch-action: none; }
 .remote-placeholder { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; padding: 28px; color: var(--text-muted); background: radial-gradient(circle at center, rgba(120, 169, 255, .08), transparent 55%); text-align: center; pointer-events: none; }
 .remote-placeholder strong { color: var(--text-secondary); font-size: 16px; }
 .remote-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; padding: 11px 4px 0; color: var(--text-muted); font-size: 11px; }
@@ -222,8 +222,8 @@ details summary::-webkit-details-marker { display: none; }
 .remote-side textarea { width: 100%; min-height: 150px; resize: vertical; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); background: var(--surface-soft); font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .remote-side textarea:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px rgba(120, 169, 255, .1); }
 .remote-help { margin: 16px 0 0; padding-top: 14px; border-top: 1px solid rgba(255, 255, 255, .06); color: var(--text-muted); font-size: 11px; }
-.remote-stage:fullscreen { max-height: none; padding: 18px; border: 0; border-radius: 0; background: #000; }
-.remote-stage:fullscreen canvas { max-width: 100%; max-height: 100%; }
+.remote-stage:fullscreen { height: 100%; max-height: none; padding: 18px; border: 0; border-radius: 0; background: #000; }
+.remote-stage:fullscreen canvas { width: auto; min-width: 0; height: 100%; min-height: 0; max-width: 100%; max-height: 100%; }
 .performance-options { margin: 16px 0; }
 .performance-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 18px; }
 .performance-metric { min-width: 0; padding: 14px; border: 1px solid #1d3046; border-radius: 12px; background: #0c1725; }
@@ -290,8 +290,8 @@ details summary::-webkit-details-marker { display: none; }
   .diagnostics-runtime-panel .data-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .diagnostics-component-list { grid-template-columns: 1fr; }
   .panel-heading-actions { align-items: flex-end; flex-direction: column; gap: 3px; }
-  .remote-stage { min-height: 480px; max-height: 72vh; }
-  .remote-stage canvas { max-height: 70vh; }
+  .remote-stage { height: 72vh; }
+  .remote-stage canvas { height: 100%; max-height: 100%; }
   .remote-toolbar button { flex: 1 1 calc(33.333% - 9px); }
   .performance-metrics { grid-template-columns: 1fr; }
 }

@@ -250,19 +250,31 @@
     model.explorationState = state;
     return state;
   };
-  const refreshPerformance = async (silent = false) => {
-    const state = await api('/v1/performance/sessions/current', {uiSilent: silent});
+  let performanceResultHeld = false;
+  const presentPerformance = async (state, mode = 'follow') => {
     model.performanceState = state;
     R.setPill('#perf-state-pill', state);
-    PerformanceView.render(state);
-    if (!state.running && state.summaryPath) {
-      try {
-        const response = await fetchResource(fileURL(state.summaryPath), {headers: {'Accept': 'application/json'}});
-        if (response.ok) PerformanceView.renderSummary(JSON.parse(await response.text()));
-      } catch (_) { /* Raw summary remains available through the artifact link. */ }
+    if (state.running) {
+      performanceResultHeld = false;
+      PerformanceView.render(state);
+      return state;
     }
+    if (mode === 'hold' || (mode !== 'idle' && performanceResultHeld)) {
+      performanceResultHeld = true;
+      PerformanceView.render(state);
+      if (state.summaryPath) {
+        try {
+          const response = await fetchResource(fileURL(state.summaryPath), {headers: {'Accept': 'application/json'}});
+          if (response.ok) PerformanceView.renderSummary(JSON.parse(await response.text()));
+        } catch (_) { /* Raw summary remains available through the artifact link. */ }
+      }
+      return state;
+    }
+    performanceResultHeld = false;
+    PerformanceView.showIdle();
     return state;
   };
+  const refreshPerformance = async (silent = false, mode = 'follow') => presentPerformance(await api('/v1/performance/sessions/current', {uiSilent: silent}), mode);
 
   const refreshDiagnostics = async (silent = false) => {
     const [runtime, components] = await Promise.all([
@@ -366,8 +378,16 @@
       toast('已获取设备截图');
     },
     'close-screenshot': () => { q('#screenshot-panel').hidden = true; },
-    'popup-start': () => api('/popupBoxAssistant', {method: 'POST'}).then(() => toast('悬浮窗启动命令已发送')),
-    'popup-stop': () => api('/popupBoxAssistant', {method: 'DELETE'}).then(() => toast('悬浮窗已停止')),
+    'popup-start': async () => {
+      const state = await api('/v1/overlay', {method: 'POST'});
+      if (!state.running) throw new Error('悬浮窗没有出现');
+      toast('悬浮窗已启动');
+    },
+    'popup-stop': async () => {
+      const state = await api('/v1/overlay', {method: 'DELETE'});
+      if (state.running) throw new Error('悬浮窗仍在运行');
+      toast('悬浮窗已停止');
+    },
     'apps-refresh': loadApps,
     'app-launch': () => api(`/v1/apps/${encodeURIComponent(packageName())}/launch`, {method: 'POST'}).then(() => toast('目标应用已启动')),
     'app-info': () => loadAppDetails(false),
@@ -440,11 +460,12 @@
       await refreshPerformance();
       toast('性能采集已开始');
     },
-    'perf-refresh': refreshPerformance,
+    'perf-refresh': () => refreshPerformance(false, 'idle'),
     'perf-stop': async () => {
       if (!model.performanceState) await refreshPerformance(true);
-      await api('/v1/performance/sessions/current', {method: 'DELETE', headers: ownerHeaders(model.performanceState)});
-      await refreshPerformance(); toast('性能数据已保存');
+      const stopped = await api('/v1/performance/sessions/current', {method: 'DELETE', headers: ownerHeaders(model.performanceState)});
+      await presentPerformance(stopped, 'hold');
+      toast('性能数据已保存');
     },
     'startup-measure': async () => {
       /** @type {StartupReport} */

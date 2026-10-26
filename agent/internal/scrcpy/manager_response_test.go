@@ -100,16 +100,22 @@ func TestClosingSessionReleasesBlockedClipboardAckPublisher(t *testing.T) {
 	}
 }
 
-func TestOnlyOneSharedControlChannelCanOwnResponses(t *testing.T) {
+func TestNewerControlChannelReplacesThePreviousOwner(t *testing.T) {
 	manager := New()
-	if !manager.acquireControl() {
-		t.Fatal("first control owner was rejected")
+	replaced := make(chan struct{})
+	token := manager.beginControl(func() { close(replaced) })
+	current := manager.beginControl(func() {})
+	select {
+	case <-replaced:
+	default:
+		t.Fatal("previous control channel was not replaced")
 	}
-	if manager.acquireControl() {
-		t.Fatal("second control owner was accepted")
+	manager.endControl(token)
+	if !manager.controlActive {
+		t.Fatal("the replaced owner cleared the current control channel")
 	}
-	manager.releaseControl()
-	if !manager.acquireControl() {
-		t.Fatal("control ownership was not released")
+	manager.endControl(current)
+	if manager.controlActive {
+		t.Fatal("the current owner did not release the control channel")
 	}
 }

@@ -9,7 +9,7 @@
   <link rel="icon" href="assets/media/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/foundation.css?v=2">
   <link rel="stylesheet" href="assets/css/shell.css?v=4">
-  <link rel="stylesheet" href="assets/css/components.css?v=3">
+  <link rel="stylesheet" href="assets/css/components.css?v=7">
 </head>
 <body class="auth-pending">
   <a class="skip-link" href="#workspace">跳到主要内容</a>
@@ -111,7 +111,7 @@
           </article>
           <article class="panel sticky-panel">
             <span class="overline">当前目标</span><h2>目标应用</h2>
-            <div class="selected-app"><span class="selected-app-icon"><span id="selected-app-fallback">A</span><img id="selected-app-icon" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="" hidden></span><div class="selected-app-copy"><strong id="selected-app-name">尚未选择</strong><small class="selected-package" id="selected-package">请选择目标应用</small></div></div>
+            <div class="selected-app"><span class="selected-app-icon"><span id="selected-app-fallback">A</span><img id="selected-app-icon" src="assets/media/placeholder.svg?v=2" alt="" hidden></span><div class="selected-app-copy"><strong id="selected-app-name">尚未选择</strong><small class="selected-package" id="selected-package">请选择目标应用</small></div></div>
             <div class="action-row"><button data-action="app-launch">启动应用</button><button class="secondary" data-action="app-info">刷新详情</button><button class="danger-quiet" data-action="app-uninstall">卸载应用</button></div>
             <div id="app-output" class="structured-output empty-state">从左侧选择一个应用。</div>
           </article>
@@ -155,15 +155,15 @@
       </section>
 
       <section id="performance" class="view" aria-labelledby="performance-title">
-        <div class="section-intro"><div><span class="overline">性能采集</span><h2 id="performance-title">性能采集</h2><p>开始采集时会自动拉起目标应用到前台，再持续记录指标，并区分预热、空闲、不支持和采集失败；停止后直接展示统计摘要与数据质量。</p></div><div class="module-controls"><label class="field module-target"><span>目标应用</span><select id="performance-package" data-package-select><option value="">请选择目标应用</option></select></label><span class="state-pill" id="perf-state-pill">空闲</span></div></div>
+        <div class="section-intro"><div><span class="overline">性能采集</span><h2 id="performance-title">性能采集</h2><p>开始采集时会自动拉起目标应用到前台，再持续记录指标，并区分预热、空闲、不支持和采集失败。停止后当前页展示统计摘要与数据质量；刷新页面后回到采集前的空表单，结果保留在产物文件中。</p></div><div class="module-controls"><label class="field module-target"><span>目标应用</span><select id="performance-package" data-package-select><option value="">请选择目标应用</option></select></label><span class="state-pill" id="perf-state-pill">空闲</span></div></div>
         <article class="panel focused-panel">
           <div class="focus-target"><span>采集目标</span><strong id="perf-target">尚未选择应用</strong></div>
           <div class="form-grid two performance-options"><label class="field"><span>采样间隔</span><span class="input-unit"><input id="perf-interval" type="number" min="1" max="60" value="2"><span>秒</span></span></label><label class="field"><span>自动停止</span><span class="input-unit"><input id="perf-duration" type="number" min="0" max="604800" value="0"><span>秒，0 表示手动停止</span></span></label></div>
           <div class="action-row"><button data-action="perf-start">开始采集</button><button class="secondary" data-action="perf-refresh">查看状态</button><button class="danger-quiet" data-action="perf-stop">停止并保存</button></div>
-          <div id="perf-metrics" class="performance-metrics"><p class="empty-state">等待首个性能样本。</p></div>
+          <div id="perf-metrics" class="performance-metrics"><p class="empty-state">等待开始性能采集。</p></div>
           <div id="perf-trends" class="performance-trends" aria-label="最近性能趋势"></div>
           <div id="perf-errors" class="performance-errors" hidden></div>
-          <div id="perf-output" class="structured-output"><p class="empty-state">等待开始性能采集。</p></div>
+          <div id="perf-output" class="structured-output"></div>
 		  <section id="perf-summary" class="performance-summary" aria-live="polite" hidden></section>
         </article>
         <article class="panel">
@@ -254,11 +254,11 @@
   <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
   <div id="global-progress" class="global-progress" hidden><span></span></div>
 
-  <script defer src="assets/js/core.js?v=3"></script>
+  <script defer src="assets/js/core.js?v=4"></script>
   <script defer src="assets/js/renderers.js?v=4"></script>
   <script defer src="assets/js/package-selector.js?v=3"></script>
-  <script defer src="assets/js/remote-control.js?v=2"></script>
-  <script defer src="assets/js/performance.js?v=2"></script>
-  <script defer src="assets/js/app.js?v=10"></script>
+  <script defer src="assets/js/remote-control.js?v=6"></script>
+  <script defer src="assets/js/performance.js?v=4"></script>
+  <script defer src="assets/js/app.js?v=12"></script>
 </body>
 </html>

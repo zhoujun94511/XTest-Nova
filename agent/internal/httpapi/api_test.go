@@ -682,6 +682,7 @@ func TestConsolePreservesMutationAndReloadStopContracts(t *testing.T) {
 	for _, marker := range []string{
 		"'X-XTest-Control': 'true'",
 		"...(requestOptions.headers || {})",
+		"button.classList.contains('icon-button')",
 	} {
 		if !strings.Contains(coreScript, marker) {
 			t.Fatalf("API mutation control marker %q is missing", marker)
@@ -767,9 +768,10 @@ func TestConsoleUsesResponsiveDiagnosticsWorkbench(t *testing.T) {
 func TestConsoleIncludesLifecycleBoundScrcpyRemoteControl(t *testing.T) {
 	files := map[string][]string{
 		"web/index.html":       {`data-view="remote"`, `id="remote-canvas"`, `remote-control.js`, `data-remote-key="3"`},
+		"web/assets/css/components.css": {".remote-stage canvas { display: block; flex: 0 0 auto; width: auto; min-width: 0; max-width: 100%; height: 100%; min-height: 0;", ".input-unit span { flex: 0 0 auto; padding-right: 11px; color: var(--text-muted); white-space: nowrap; }"},
 		"web/assets/js/app.js": {"Remote.activate()", "Remote.deactivate()", "Remote.configure({toast})"},
 		"web/assets/js/remote-control.js": {
-			"/scrcpy/screen/", "/scrcpy/control/original", "new VideoDecoder", "EncodedVideoChunk",
+			"/scrcpy/screen/", "/scrcpy/control/original", "new VideoDecoder", "EncodedVideoChunk", "if (videoSocket !== screen) return;", "正在切换到", "replaceScreen();", "performance.now()", "fitPreview(this.canvas);",
 			"pointerdown", "pointermove", "pointerup", "read-clipboard", "requestFullscreen",
 		},
 	}
@@ -789,8 +791,8 @@ func TestConsoleIncludesLifecycleBoundScrcpyRemoteControl(t *testing.T) {
 func TestConsoleIncludesStructuredPerformanceWorkbench(t *testing.T) {
 	files := map[string][]string{
 		"web/index.html":               {`id="perf-interval"`, `id="perf-duration"`, `id="perf-metrics"`, `performance.js`},
-		"web/assets/js/app.js":         {"PerformanceView.render(state)", "intervalSeconds", "durationSeconds"},
-		"web/assets/js/performance.js": {"应用 CPU", "应用网络", "metricStates", "renderSummary", "network_rx_bytes_per_second", "history.length > 120"},
+		"web/assets/js/app.js":         {"PerformanceView.render(state)", "presentPerformance(stopped, 'hold')", "refreshPerformance(false, 'idle')", "intervalSeconds", "durationSeconds"},
+		"web/assets/js/performance.js": {"应用 CPU", "应用网络", "metricStates", "renderSummary", "showIdle", "state.endedAt", "network_rx_bytes_per_second", "history.length > 120"},
 	}
 	for name, markers := range files {
 		data, err := consoleFiles.ReadFile(name)
@@ -859,7 +861,7 @@ func TestEmbeddedConsole(t *testing.T) {
 					t.Fatalf("console is missing %q workflow", label)
 				}
 			}
-			for _, asset := range []string{`href="assets/css/foundation.css?v=2"`, `href="assets/css/shell.css?v=4"`, `src="assets/js/core.js?v=3"`, `src="assets/js/renderers.js?v=4"`, `src="assets/js/package-selector.js?v=3"`, `src="assets/js/remote-control.js?v=2"`, `src="assets/js/performance.js?v=2"`, `src="assets/media/placeholder.svg?v=2"`} {
+			for _, asset := range []string{`href="assets/css/foundation.css?v=2"`, `href="assets/css/shell.css?v=4"`, `href="assets/css/components.css?v=7"`, `src="assets/js/core.js?v=4"`, `src="assets/js/renderers.js?v=4"`, `src="assets/js/package-selector.js?v=3"`, `src="assets/js/remote-control.js?v=6"`, `src="assets/js/app.js?v=12"`, `src="assets/js/performance.js?v=4"`, `src="assets/media/placeholder.svg?v=2"`} {
 				if !strings.Contains(response.Body.String(), asset) {
 					t.Fatalf("console is missing relative asset %q", asset)
 				}

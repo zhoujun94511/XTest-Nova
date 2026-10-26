@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.1 — 2026-10-26
+
+- The web console starts and stops the phone overlay service. Remote quality changes keep one preview size. A finished performance session returns to the empty form on refresh, and the summary stays on the page that stopped it.
+- Unit text beside number fields stays on one line. The console refresh icon keeps its size while the request is in progress.
+- Raised the Agent size allowance to 15 MiB and the Runner package allowance to 8 MiB.
+
 ## 0.30.0 — 2026-10-26
 
 - A first-launch language page selects English when that control exists, otherwise Chinese, and confirms only after the language tap succeeds. Setting, language, and locale activities are not auto-selected.

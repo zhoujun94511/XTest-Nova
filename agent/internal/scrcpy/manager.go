@@ -50,30 +50,31 @@ type Options struct {
 }
 
 func optionsFor(definition string) (Options, error) {
-	options := Options{FPS: 30, MaxSize: 1280, BitRate: 8_000_000, StayAwake: true}
 	switch definition {
 	case "", "normal", "middle":
+		return Options{FPS: 30, MaxSize: 1280, BitRate: 8_000_000, StayAwake: true}, nil
 	case "high":
-		options.MaxSize = 2048
+		return Options{FPS: 60, MaxSize: 2048, BitRate: 24_000_000, StayAwake: true}, nil
 	case "low":
-		options.FPS, options.MaxSize, options.BitRate = 10, 480, 1_000_000
+		return Options{FPS: 10, MaxSize: 480, BitRate: 1_000_000, StayAwake: true}, nil
 	case "original":
-		options.FPS, options.MaxSize = 0, 0
+		return Options{BitRate: 64_000_000, StayAwake: true}, nil
 	default:
 		return Options{}, fmt.Errorf("unsupported scrcpy definition: %s", definition)
 	}
-	return options, nil
 }
 
 type Manager struct {
-	path          string
-	startMu       sync.Mutex
-	mu            sync.RWMutex
-	current       *session
-	controlMu     sync.Mutex
-	controlActive bool
-	nextID        atomic.Uint32
-	nextSequence  atomic.Uint64
+	path              string
+	startMu           sync.Mutex
+	mu                sync.RWMutex
+	current           *session
+	controlMu         sync.Mutex
+	controlActive     bool
+	controlGeneration uint64
+	controlCancel     context.CancelFunc
+	nextID            atomic.Uint32
+	nextSequence      atomic.Uint64
 }
 
 func New() *Manager {
@@ -180,7 +181,11 @@ func (m *Manager) startControlOnly(ctx context.Context) (*session, error) {
 	}
 	s.control = control
 	go s.readDeviceMessages()
-	go func() { _ = command.Wait(); s.close() }()
+	go func() {
+		_ = command.Wait()
+		close(s.exited)
+		s.close()
+	}()
 	return s, nil
 }
 
@@ -251,9 +256,46 @@ func dialSocket(ctx context.Context, name string) (net.Conn, error) {
 	return nil, fmt.Errorf("connect %s: %w", name, last)
 }
 
+func abandonSession(s *session) {
+	s.close()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-s.exited:
+	case <-timer.C:
+	}
+}
+
+func (m *Manager) releaseCurrent(ctx context.Context) error {
+	m.mu.Lock()
+	previous := m.current
+	m.current = nil
+	m.mu.Unlock()
+	if previous == nil {
+		return nil
+	}
+	previous.close()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-previous.exited:
+		return nil
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (m *Manager) start(ctx context.Context, options Options) (*session, error) {
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := m.releaseCurrent(ctx); err != nil {
+		return nil, err
+	}
 	if err := m.installServer(); err != nil {
 		return nil, err
 	}
@@ -267,33 +309,32 @@ func (m *Manager) start(ctx context.Context, options Options) (*session, error) 
 		return nil, fmt.Errorf("start scrcpy app_process: %w", err)
 	}
 	s := newSession(command, cancel)
+	go func() {
+		_ = command.Wait()
+		close(s.exited)
+		s.close()
+	}()
 	name := fmt.Sprintf("@scrcpy_%08x", id)
 	video, err := dialSocket(ctx, name)
 	if err != nil {
-		s.close()
-		_ = command.Wait()
+		abandonSession(s)
 		return nil, err
 	}
 	s.video = video
 	control, err := dialSocket(ctx, name)
 	if err != nil {
-		s.close()
-		_ = command.Wait()
+		abandonSession(s)
 		return nil, err
 	}
 	s.control = control
 	go s.readDeviceMessages()
-	go func() {
-		_ = command.Wait()
-		s.close()
-	}()
+	if err = ctx.Err(); err != nil {
+		abandonSession(s)
+		return nil, err
+	}
 	m.mu.Lock()
-	previous := m.current
 	m.current = s
 	m.mu.Unlock()
-	if previous != nil {
-		previous.close()
-	}
 	return s, nil
 }
 
@@ -366,10 +407,10 @@ func (m *Manager) waitCurrent(ctx context.Context) (*session, error) {
 }
 
 func (m *Manager) serveControl(ctx context.Context, ws *websocket.Conn) error {
-	if !m.acquireControl() {
-		return errors.New("scrcpy control channel already active")
-	}
-	defer m.releaseControl()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	token := m.beginControl(cancel)
+	defer m.endControl(token)
 	width, height := physicalSize(ctx)
 	for {
 		var event Event
@@ -419,20 +460,26 @@ func (m *Manager) serveControl(ctx context.Context, ws *websocket.Conn) error {
 	}
 }
 
-func (m *Manager) acquireControl() bool {
+func (m *Manager) beginControl(cancel context.CancelFunc) uint64 {
 	m.controlMu.Lock()
 	defer m.controlMu.Unlock()
-	if m.controlActive {
-		return false
+	if m.controlCancel != nil {
+		m.controlCancel()
 	}
+	m.controlGeneration++
+	m.controlCancel = cancel
 	m.controlActive = true
-	return true
+	return m.controlGeneration
 }
 
-func (m *Manager) releaseControl() {
+func (m *Manager) endControl(token uint64) {
 	m.controlMu.Lock()
+	defer m.controlMu.Unlock()
+	if m.controlGeneration != token {
+		return
+	}
+	m.controlCancel = nil
 	m.controlActive = false
-	m.controlMu.Unlock()
 }
 
 var sizePattern = regexp.MustCompile(`(?m)(?:Override|Physical) size:\s*(\d+)x(\d+)`)
@@ -488,6 +535,7 @@ type session struct {
 	command        *exec.Cmd
 	cancel         context.CancelFunc
 	done           chan struct{}
+	exited         chan struct{}
 	closeOnce      sync.Once
 	writeMu        sync.Mutex
 	deviceEvents   chan map[string]any
@@ -500,7 +548,7 @@ type session struct {
 
 func newSession(command *exec.Cmd, cancel context.CancelFunc) *session {
 	return &session{
-		command: command, cancel: cancel, done: make(chan struct{}),
+		command: command, cancel: cancel, done: make(chan struct{}), exited: make(chan struct{}),
 		deviceEvents: make(chan map[string]any, 16),
 		ackPending:   make(map[uint64]struct{}),
 		ackWaiters:   make(map[uint64][]chan struct{}),
